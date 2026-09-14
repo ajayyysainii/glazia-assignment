@@ -1,18 +1,17 @@
-import express from "express";
-import dotenv from "dotenv";
-import morgan from "morgan";
-import cors from "cors";
+import { createApp } from "./app.js";
+import { connectDB } from "./config/db.js";
+import { env } from "./config/env.js";
 
-dotenv.config();
+async function bootstrap() {
+  await connectDB();
+  const app = createApp();
 
-const app = express();
+  app.listen(env.PORT, () => {
+    console.log(`Server is running on port ${env.PORT}`);
+  });
+}
 
-app.use(morgan("dev"));
-app.use(cors());
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
-
-
-app.listen(process.env.PORT, () => {
-  console.log(`Server is running on port ${process.env.PORT}`);
+bootstrap().catch((err) => {
+  console.error("Failed to start server:", err);
+  process.exit(1);
 });
