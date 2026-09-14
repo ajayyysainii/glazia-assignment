@@ -4,20 +4,30 @@ import { verifyAccessToken } from "../utils/jwt.js";
 
 export function authenticate(req: Request, _res: Response, next: NextFunction) {
   const header = req.headers.authorization;
-  if (!header?.startsWith("Bearer ")) {
-    return next(new AppError("Authentication required", 401));
+
+  if (!header) {
+    return next(AppError.unauthorized("Missing Authorization header"));
+  }
+
+  if (!header.startsWith("Bearer ")) {
+    return next(
+      AppError.unauthorized("Authorization header must use Bearer scheme"),
+    );
   }
 
   const token = header.slice("Bearer ".length).trim();
   if (!token) {
-    return next(new AppError("Authentication required", 401));
+    return next(AppError.unauthorized("Access token is required"));
   }
 
   try {
     const payload = verifyAccessToken(token);
     req.user = { id: payload.sub, email: payload.email };
     next();
-  } catch {
-    next(new AppError("Invalid or expired access token", 401));
+  } catch (err) {
+    if (err instanceof Error && err.name === "TokenExpiredError") {
+      return next(AppError.unauthorized("Access token expired"));
+    }
+    next(AppError.unauthorized("Invalid or expired access token"));
   }
 }

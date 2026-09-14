@@ -50,7 +50,7 @@ export async function registerUser(input: {
 }) {
   const existing = await User.findOne({ email: input.email });
   if (existing) {
-    throw new AppError("Email already registered", 409);
+    throw AppError.conflict("Email already registered");
   }
 
   const user = await User.create(input);
@@ -65,7 +65,7 @@ export async function registerUser(input: {
 export async function loginUser(input: { email: string; password: string }) {
   const user = await User.findOne({ email: input.email }).select("+password");
   if (!user || !(await user.comparePassword(input.password))) {
-    throw new AppError("Invalid email or password", 401);
+    throw AppError.unauthorized("Invalid email or password");
   }
 
   const tokens = await issueTokenPair(user);
@@ -79,8 +79,11 @@ export async function refreshTokens(refreshToken: string) {
   let payload;
   try {
     payload = verifyRefreshToken(refreshToken);
-  } catch {
-    throw new AppError("Invalid or expired refresh token", 401);
+  } catch (err) {
+    if (err instanceof Error && err.name === "TokenExpiredError") {
+      throw AppError.unauthorized("Refresh token expired");
+    }
+    throw AppError.unauthorized("Invalid or expired refresh token");
   }
 
   const tokenHash = hashToken(refreshToken);
@@ -89,8 +92,13 @@ export async function refreshTokens(refreshToken: string) {
     user: payload.sub,
   });
 
-  if (!stored || stored.expiresAt.getTime() < Date.now()) {
-    throw new AppError("Invalid or expired refresh token", 401);
+  if (!stored) {
+    throw AppError.unauthorized("Refresh token revoked or unknown");
+  }
+
+  if (stored.expiresAt.getTime() < Date.now()) {
+    await stored.deleteOne();
+    throw AppError.unauthorized("Refresh token expired");
   }
 
   // Rotate refresh token
@@ -98,7 +106,7 @@ export async function refreshTokens(refreshToken: string) {
 
   const user = await User.findById(payload.sub);
   if (!user) {
-    throw new AppError("User not found", 401);
+    throw AppError.unauthorized("User no longer exists");
   }
 
   const tokens = await issueTokenPair(user);
@@ -110,17 +118,25 @@ export async function refreshTokens(refreshToken: string) {
 
 export async function logoutUser(refreshToken: string) {
   const tokenHash = hashToken(refreshToken);
-  await RefreshToken.deleteOne({ tokenHash });
+  const deleted = await RefreshToken.deleteOne({ tokenHash });
+
+  if (deleted.deletedCount === 0) {
+    // Idempotent logout: treat unknown token as already logged out
+    return { revoked: false };
+  }
+
+  return { revoked: true };
 }
 
 export async function logoutAllSessions(userId: string) {
-  await RefreshToken.deleteMany({ user: userId });
+  const result = await RefreshToken.deleteMany({ user: userId });
+  return { revokedCount: result.deletedCount ?? 0 };
 }
 
 export async function getCurrentUser(userId: string) {
   const user = await User.findById(userId);
   if (!user) {
-    throw new AppError("User not found", 404);
+    throw AppError.notFound("User not found");
   }
   return toUserResponse(user);
 }
