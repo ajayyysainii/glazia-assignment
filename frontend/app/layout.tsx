@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono, Fraunces } from "next/font/google";
 import "./globals.css";
 
@@ -22,13 +22,23 @@ export const metadata: Metadata = {
   description: "Draw and sketch on an Excalidraw-style infinite canvas.",
 };
 
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  maximumScale: 1,
+  // The canvas handles its own pinch-zoom, so browser zoom would fight it.
+  userScalable: false,
+  viewportFit: "cover",
+  themeColor: "#f4f5f7",
+};
+
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html
       lang="en"
       className={`${geistSans.variable} ${geistMono.variable} ${display.variable} h-full antialiased`}
     >
-      <body className="h-full overflow-hidden">{children}</body>
+      <body className="h-full overflow-hidden overscroll-none">{children}</body>
     </html>
   );
 }

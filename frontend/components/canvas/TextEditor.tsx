@@ -34,7 +34,12 @@ export function TextEditor({
     textarea.style.position = "absolute";
     textarea.style.left = `${absPos.x}px`;
     textarea.style.top = `${absPos.y}px`;
-    textarea.style.width = `${Math.max(120, (shape.width ?? 200) * stageScale)}px`;
+    const available = Math.max(120, stage.width() - absPos.x - 16);
+    textarea.style.width = `${Math.min(
+      Math.max(120, (shape.width ?? 200) * stageScale),
+      available,
+    )}px`;
+    textarea.style.maxWidth = "calc(100vw - 1rem)";
     textarea.style.fontSize = `${shape.fontSize * stageScale}px`;
     textarea.style.lineHeight = "1.2";
     textarea.style.transform = `rotate(${shape.rotation ?? 0}deg)`;

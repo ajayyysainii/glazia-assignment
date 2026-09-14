@@ -1,4 +1,5 @@
 import { getAccessToken } from "@/lib/auth/storage";
+import { refreshAccessToken } from "@/lib/auth/refresh";
 
 export type ApiErrorBody = {
   success: false;
@@ -29,29 +30,11 @@ export class ApiError extends Error {
   }
 }
 
+// Same-origin `/api` (Next rewrite → backend) so calls show in Network under :3000
 const API_BASE =
-  process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "") ||
-  "http://localhost:4000/api";
+  process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "") || "/api";
 
-export async function apiRequest<T>(
-  path: string,
-  options: RequestInit & { auth?: boolean } = {},
-): Promise<T> {
-  const headers = new Headers(options.headers);
-  if (!headers.has("Content-Type") && options.body) {
-    headers.set("Content-Type", "application/json");
-  }
-
-  if (options.auth) {
-    const token = getAccessToken();
-    if (token) headers.set("Authorization", `Bearer ${token}`);
-  }
-
-  const res = await fetch(`${API_BASE}${path}`, {
-    ...options,
-    headers,
-  });
-
+async function parseResponse<T>(res: Response): Promise<T> {
   const json = (await res.json().catch(() => null)) as
     | SuccessResponse<T>
     | ApiErrorBody
@@ -68,4 +51,33 @@ export async function apiRequest<T>(
   }
 
   return json.data;
+}
+
+export async function apiRequest<T>(
+  path: string,
+  options: RequestInit & { auth?: boolean; _retried?: boolean } = {},
+): Promise<T> {
+  const headers = new Headers(options.headers);
+  if (!headers.has("Content-Type") && options.body) {
+    headers.set("Content-Type", "application/json");
+  }
+
+  if (options.auth) {
+    const token = getAccessToken();
+    if (token) headers.set("Authorization", `Bearer ${token}`);
+  }
+
+  const res = await fetch(`${API_BASE}${path}`, {
+    ...options,
+    headers,
+  });
+
+  if (res.status === 401 && options.auth && !options._retried) {
+    const refreshed = await refreshAccessToken();
+    if (refreshed) {
+      return apiRequest<T>(path, { ...options, _retried: true });
+    }
+  }
+
+  return parseResponse<T>(res);
 }

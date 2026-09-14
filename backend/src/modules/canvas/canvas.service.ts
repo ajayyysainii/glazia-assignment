@@ -1,6 +1,7 @@
 import type { Types } from "mongoose";
 import { Canvas } from "../../models/Canvas.js";
 import { AppError } from "../../utils/AppError.js";
+import { buildPreview } from "./canvas.preview.js";
 
 function toCanvasResponse(canvas: {
   _id: { toString(): string };
@@ -31,12 +32,19 @@ function toCanvasSummary(canvas: {
   createdAt?: Date;
   updatedAt?: Date;
 }) {
+  const { preview, bounds, previewTruncated } = buildPreview(canvas.shapes);
+
   return {
     id: canvas._id.toString(),
     owner: canvas.owner.toString(),
     title: canvas.title,
     shapeCount: canvas.shapes.length,
     viewport: canvas.viewport,
+    // Thumbnail data for the dashboard. The query already reads every shape
+    // to count them, so this is free apart from the response bytes.
+    preview,
+    previewBounds: bounds,
+    previewTruncated,
     createdAt: canvas.createdAt,
     updatedAt: canvas.updatedAt,
   };

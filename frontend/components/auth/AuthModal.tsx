@@ -40,7 +40,13 @@ export function AuthModal({
   if (!open) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center bg-[#1c202a]/35 px-4 pt-24 backdrop-blur-[2px] sm:items-center sm:pt-0">
+    <div
+      className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-[#1c202a]/35 px-4 py-6 backdrop-blur-[2px] sm:items-center sm:py-0"
+      style={{
+        paddingTop: "calc(1.5rem + var(--safe-top))",
+        paddingBottom: "calc(1.5rem + var(--safe-bottom))",
+      }}
+    >
       <button
         type="button"
         aria-label="Close dialog backdrop"
@@ -52,12 +58,12 @@ export function AuthModal({
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
-        className="relative z-10 w-full max-w-md rounded-3xl bg-white p-6 shadow-[0_24px_80px_rgba(28,32,42,0.22)] ring-1 ring-black/5"
+        className="relative z-10 my-auto w-full max-w-md rounded-3xl bg-white p-5 shadow-[0_24px_80px_rgba(28,32,42,0.22)] ring-1 ring-black/5 sm:p-6"
       >
         <button
           type="button"
           onClick={onClose}
-          className="absolute right-4 top-4 flex h-8 w-8 items-center justify-center rounded-full text-[#6b7285] transition hover:bg-[#eef0f4] hover:text-[#1c202a]"
+          className="absolute right-3 top-3 flex h-10 w-10 items-center justify-center rounded-full text-[#6b7285] transition hover:bg-[#eef0f4] hover:text-[#1c202a] sm:right-4 sm:top-4"
           aria-label="Close"
         >
           <X size={18} strokeWidth={1.8} />
@@ -66,7 +72,7 @@ export function AuthModal({
         <div className="mb-6 pr-8">
           <h2
             id={titleId}
-            className="font-display text-2xl font-semibold tracking-tight text-[#1c202a]"
+            className="font-display text-xl font-semibold tracking-tight text-[#1c202a] sm:text-2xl"
           >
             {title}
           </h2>
@@ -112,7 +118,7 @@ export function AuthField({
         required={required}
         minLength={minLength}
         placeholder={placeholder}
-        className="w-full rounded-xl border border-[#e2e5eb] bg-[#f8f9fb] px-3.5 py-2.5 text-sm text-[#1c202a] outline-none transition placeholder:text-[#9aa0ad] focus:border-[#1c202a]/30 focus:bg-white focus:ring-2 focus:ring-[#1c202a]/10"
+        className="w-full rounded-xl border border-[#e2e5eb] bg-[#f8f9fb] px-3.5 py-3 text-base text-[#1c202a] outline-none transition placeholder:text-[#9aa0ad] focus:border-[#1c202a]/30 focus:bg-white focus:ring-2 focus:ring-[#1c202a]/10 sm:py-2.5 sm:text-sm"
       />
     </label>
   );
@@ -146,7 +152,7 @@ export function AuthFormShell({
       <button
         type="submit"
         disabled={loading}
-        className="flex h-11 w-full items-center justify-center rounded-xl bg-[#1c202a] text-sm font-medium text-white transition hover:bg-[#2b3140] disabled:cursor-not-allowed disabled:opacity-60"
+        className="flex h-12 w-full items-center justify-center rounded-xl bg-[#1c202a] text-sm font-medium text-white sm:h-11 transition hover:bg-[#2b3140] disabled:cursor-not-allowed disabled:opacity-60"
       >
         {loading ? "Please wait…" : submitLabel}
       </button>

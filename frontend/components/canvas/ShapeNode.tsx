@@ -2,7 +2,7 @@
 
 import type Konva from "konva";
 import { Arrow, Ellipse, Line, Rect, Text } from "react-konva";
-import { TRANSPARENT_FILL } from "./constants";
+import { TRANSPARENT } from "./constants";
 import type { CanvasShape, Tool } from "./types";
 
 type ShapeNodeProps = {
@@ -16,11 +16,43 @@ type ShapeNodeProps = {
   registerRef: (id: string, node: Konva.Node | null) => void;
 };
 
-function resolveFill(fill?: string | null) {
-  if (!fill || fill === TRANSPARENT_FILL) {
-    return { fillEnabled: false as const, fill: undefined };
+function isTransparent(value?: string | null) {
+  return !value || value === TRANSPARENT;
+}
+
+function resolveFill(fill?: string | null): {
+  fillEnabled: boolean;
+  fill?: string;
+} {
+  if (isTransparent(fill)) {
+    return { fillEnabled: false };
   }
-  return { fillEnabled: true as const, fill };
+  return { fillEnabled: true, fill: fill as string };
+}
+
+function resolveStroke(
+  stroke: string,
+  strokeWidth: number,
+): {
+  strokeEnabled: boolean;
+  stroke?: string;
+  strokeWidth: number;
+  hitStrokeWidth?: number;
+} {
+  if (isTransparent(stroke)) {
+    return {
+      strokeEnabled: false,
+      strokeWidth: 0,
+      hitStrokeWidth: 24,
+    };
+  }
+  return {
+    strokeEnabled: true,
+    stroke,
+    strokeWidth,
+    // Thin strokes are near impossible to hit with a fingertip.
+    hitStrokeWidth: Math.max(strokeWidth, 20),
+  };
 }
 
 export function ShapeNode({
@@ -34,11 +66,11 @@ export function ShapeNode({
   registerRef,
 }: ShapeNodeProps) {
   const selectable = !isDraft && tool === "select";
+  const strokeProps = resolveStroke(shape.stroke, shape.strokeWidth);
 
   const common = {
     rotation: shape.rotation ?? 0,
-    stroke: shape.stroke,
-    strokeWidth: shape.strokeWidth,
+    ...strokeProps,
     perfectDrawEnabled: false,
     listening: selectable,
     draggable: selectable,
@@ -145,17 +177,19 @@ export function ShapeNode({
   }
 
   if (shape.kind === "text") {
+    const textColor = isTransparent(shape.stroke) ? "#1e1e1e" : shape.stroke;
     return (
       <Text
         key={shape.id}
         {...common}
+        strokeEnabled={false}
+        hitStrokeWidth={0}
         x={shape.x}
         y={shape.y}
         text={shape.text}
         fontSize={shape.fontSize}
         fontFamily="Geist, sans-serif"
-        fill={shape.stroke}
-        strokeEnabled={false}
+        fill={textColor}
         width={shape.width}
         opacity={isEditing ? 0 : 1}
         onDblClick={() => onEditText?.(shape.id)}
@@ -185,16 +219,21 @@ export function ShapeNode({
     );
   }
 
+  const arrowColor = isTransparent(shape.stroke) ? "#1e1e1e" : shape.stroke;
+
   return (
     <Arrow
       key={shape.id}
       {...common}
+      stroke={arrowColor}
+      strokeEnabled
+      strokeWidth={isTransparent(shape.stroke) ? shape.strokeWidth || 2 : shape.strokeWidth}
       points={shape.points}
       pointerLength={12}
       pointerWidth={12}
       lineCap="round"
       lineJoin="round"
-      fill={shape.stroke}
+      fill={arrowColor}
       onDragEnd={(e) => {
         const node = e.target;
         const dx = node.x();

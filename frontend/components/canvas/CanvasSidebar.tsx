@@ -1,81 +1,119 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import {
-  PanelRight,
+  Check,
+  CloudOff,
+  LayoutGrid,
+  LoaderCircle,
   Plus,
   Save,
-  Trash2,
   X,
-  FolderOpen,
-  LoaderCircle,
 } from "lucide-react";
 import { useAuth } from "@/lib/auth";
-import {
-  createCanvas,
-  deleteCanvas,
-  getCanvas,
-  listCanvases,
-  updateCanvas,
-  type CanvasSummary,
-} from "@/lib/canvas";
-import { ApiError } from "@/lib/api/client";
 import type { DrawingCanvasHandle } from "@/components/canvas/DrawingCanvas";
+import type { SaveStatus } from "@/components/canvas/hooks/useCanvasPersistence";
 
 type CanvasSidebarProps = {
   canvasRef: React.RefObject<DrawingCanvasHandle | null>;
   activeCanvasId: string | null;
   activeTitle: string;
   dirty: boolean;
-  onActiveChange: (canvas: {
-    id: string | null;
-    title: string;
-  }) => void;
+  saveStatus: SaveStatus;
+  saveError: string | null;
+  onSaveErrorClear: () => void;
+  onPersist: (options?: {
+    silent?: boolean;
+    forceCreate?: boolean;
+  }) => Promise<unknown>;
+  onActiveChange: (canvas: { id: string | null; title: string }) => void;
   onRequestLogin: () => void;
+  /** Hand browsing off to the dashboard, which owns the whole library. */
+  onBrowseAll: () => void;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
 };
+
+function SaveLine({
+  status,
+  dirty,
+  loggedIn,
+}: {
+  status: SaveStatus;
+  dirty: boolean;
+  loggedIn: boolean;
+}) {
+  if (!loggedIn) {
+    return (
+      <span className="flex items-center gap-1.5 text-[#9aa0ad]">
+        <CloudOff size={13} strokeWidth={1.8} />
+        Not saving — you are logged out
+      </span>
+    );
+  }
+  if (status === "saving") {
+    return (
+      <span className="flex items-center gap-1.5 text-[#6b7285]">
+        <LoaderCircle size={13} className="animate-spin" />
+        Saving…
+      </span>
+    );
+  }
+  if (dirty) {
+    return (
+      <span className="flex items-center gap-1.5 text-[#6b7285]">
+        <span className="h-1.5 w-1.5 rounded-full bg-[#f08c00]" />
+        Unsaved changes
+      </span>
+    );
+  }
+  return (
+    <span className="flex items-center gap-1.5 text-[#6b7285]">
+      <Check size={13} strokeWidth={2} className="text-[#2f9e44]" />
+      All changes saved
+    </span>
+  );
+}
 
 export function CanvasSidebar({
   canvasRef,
   activeCanvasId,
   activeTitle,
   dirty,
+  saveStatus,
+  saveError,
+  onSaveErrorClear,
+  onPersist,
   onActiveChange,
   onRequestLogin,
+  onBrowseAll,
+  open,
+  onOpenChange,
 }: CanvasSidebarProps) {
   const { user } = useAuth();
-  const [open, setOpen] = useState(false);
-  const [canvases, setCanvases] = useState<CanvasSummary[]>([]);
-  const [loading, setLoading] = useState(false);
+  const setOpen = onOpenChange;
   const [busy, setBusy] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [localError, setLocalError] = useState<string | null>(null);
   const [titleDraft, setTitleDraft] = useState(activeTitle);
 
   useEffect(() => {
     setTitleDraft(activeTitle);
   }, [activeTitle]);
 
-  const refreshList = useCallback(async () => {
-    if (!user) {
-      setCanvases([]);
-      return;
-    }
-    setLoading(true);
-    setError(null);
-    try {
-      const items = await listCanvases();
-      setCanvases(items);
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Failed to load canvases");
-    } finally {
-      setLoading(false);
-    }
-  }, [user]);
-
+  // On phones the panel covers the board, so Escape needs to dismiss it.
   useEffect(() => {
-    if (open && user) {
-      void refreshList();
-    }
-  }, [open, user, refreshList]);
+    if (!open) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setOpen(false);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [open, setOpen]);
+
+  const setTitle = (next: string) => {
+    setTitleDraft(next);
+    onActiveChange({ id: activeCanvasId, title: next });
+  };
 
   const requireAuth = () => {
     if (!user) {
@@ -85,132 +123,32 @@ export function CanvasSidebar({
     return true;
   };
 
-  const handleCreate = async () => {
-    if (!requireAuth()) return;
-    const snapshot = canvasRef.current?.getSnapshot();
-    if (!snapshot) return;
-
-    setBusy("create");
-    setError(null);
-    try {
-      const title =
-        titleDraft.trim() ||
-        `Canvas ${new Date().toLocaleString(undefined, {
-          month: "short",
-          day: "numeric",
-          hour: "2-digit",
-          minute: "2-digit",
-        })}`;
-      const canvas = await createCanvas({
-        title,
-        shapes: snapshot.shapes,
-        viewport: snapshot.viewport,
-      });
-      canvasRef.current?.markClean();
-      onActiveChange({ id: canvas.id, title: canvas.title });
-      setTitleDraft(canvas.title);
-      await refreshList();
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Failed to create canvas");
-    } finally {
-      setBusy(null);
-    }
-  };
-
   const handleSave = async () => {
     if (!requireAuth()) return;
-    const snapshot = canvasRef.current?.getSnapshot();
-    if (!snapshot) return;
-
     setBusy("save");
-    setError(null);
+    onSaveErrorClear();
+    setLocalError(null);
     try {
-      if (!activeCanvasId) {
-        const title =
-          titleDraft.trim() ||
-          `Canvas ${new Date().toLocaleString(undefined, {
-            month: "short",
-            day: "numeric",
-            hour: "2-digit",
-            minute: "2-digit",
-          })}`;
-        const canvas = await createCanvas({
-          title,
-          shapes: snapshot.shapes,
-          viewport: snapshot.viewport,
-        });
-        canvasRef.current?.markClean();
-        onActiveChange({ id: canvas.id, title: canvas.title });
-        setTitleDraft(canvas.title);
-        await refreshList();
-        return;
-      }
-
-      const canvas = await updateCanvas(activeCanvasId, {
-        title: titleDraft.trim() || activeTitle || "Untitled canvas",
-        shapes: snapshot.shapes,
-        viewport: snapshot.viewport,
-      });
-      canvasRef.current?.markClean();
-      onActiveChange({ id: canvas.id, title: canvas.title });
-      await refreshList();
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Failed to save canvas");
+      await onPersist();
     } finally {
       setBusy(null);
     }
   };
 
-  const handleOpen = async (id: string) => {
+  const handleDuplicateAsNew = async () => {
     if (!requireAuth()) return;
-    if (dirty) {
-      const ok = window.confirm(
-        "You have unsaved changes. Discard them and open this canvas?",
-      );
-      if (!ok) return;
-    }
-
-    setBusy(`open:${id}`);
-    setError(null);
+    setBusy("create");
+    onSaveErrorClear();
+    setLocalError(null);
     try {
-      const canvas = await getCanvas(id);
-      canvasRef.current?.loadDocument({
-        shapes: canvas.shapes,
-        viewport: canvas.viewport,
-      });
-      onActiveChange({ id: canvas.id, title: canvas.title });
-      setTitleDraft(canvas.title);
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Failed to open canvas");
-    } finally {
-      setBusy(null);
-    }
-  };
-
-  const handleDelete = async (id: string) => {
-    if (!requireAuth()) return;
-    const ok = window.confirm("Delete this canvas permanently?");
-    if (!ok) return;
-
-    setBusy(`delete:${id}`);
-    setError(null);
-    try {
-      await deleteCanvas(id);
-      if (activeCanvasId === id) {
-        canvasRef.current?.clearLocal();
-        onActiveChange({ id: null, title: "Untitled canvas" });
-        setTitleDraft("Untitled canvas");
-      }
-      await refreshList();
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Failed to delete canvas");
+      await onPersist({ forceCreate: true });
     } finally {
       setBusy(null);
     }
   };
 
   const handleNewBlank = () => {
-    if (dirty) {
+    if (dirty && !user) {
       const ok = window.confirm(
         "Start a new blank canvas? Unsaved changes will be lost.",
       );
@@ -221,182 +159,138 @@ export function CanvasSidebar({
     setTitleDraft("Untitled canvas");
   };
 
+  const error = localError || saveError;
+
   return (
     <>
+      {/* Dim the board behind the panel while it covers the screen on phones */}
       <button
         type="button"
-        onClick={() => setOpen((v) => !v)}
-        className="absolute right-5 top-[4.75rem] z-30 flex h-11 w-11 items-center justify-center rounded-2xl bg-white/95 text-[#1c202a] shadow-[0_10px_40px_rgba(28,32,42,0.12)] ring-1 ring-black/5 backdrop-blur transition hover:bg-white"
-        title="Canvases"
-        aria-label="Open canvases sidebar"
-        aria-expanded={open}
-      >
-        <PanelRight size={18} strokeWidth={1.8} />
-      </button>
+        aria-label="Close board panel"
+        tabIndex={open ? 0 : -1}
+        onClick={() => setOpen(false)}
+        className={`absolute inset-0 z-30 cursor-default bg-[#1c202a]/30 transition-opacity duration-200 sm:hidden ${
+          open ? "opacity-100" : "pointer-events-none opacity-0"
+        }`}
+      />
 
       <aside
-        className={`absolute right-0 top-0 z-40 flex h-full w-[min(100vw,320px)] flex-col border-l border-black/5 bg-white/95 shadow-[-12px_0_40px_rgba(28,32,42,0.08)] backdrop-blur transition-transform duration-200 ${
+        // `inert` (not aria-hidden) keeps the offscreen panel's buttons out of
+        // both the tab order and the accessibility tree.
+        inert={!open}
+        className={`absolute right-0 top-0 z-40 flex h-full w-[min(100vw_-_2.5rem,340px)] flex-col border-l border-black/5 bg-white/95 shadow-[-12px_0_40px_rgba(28,32,42,0.08)] backdrop-blur transition-transform duration-200 sm:w-[min(100vw,320px)] ${
           open ? "translate-x-0" : "translate-x-full"
         }`}
+        style={{
+          paddingTop: "var(--safe-top)",
+          paddingBottom: "var(--safe-bottom)",
+          paddingRight: "var(--safe-right)",
+        }}
       >
-        <div className="flex items-center justify-between border-b border-[#eef0f4] px-4 py-4">
-          <div>
-            <p className="font-display text-lg font-semibold text-[#1c202a]">
-              Canvases
+        <div className="flex items-start justify-between gap-2 px-5 pb-4 pt-5">
+          <div className="min-w-0">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[#9aa0ad]">
+              This board
             </p>
-            <p className="text-xs text-[#6b7285]">
-              {user ? "Saved to your account" : "Log in to save boards"}
+            <p className="mt-1.5 truncate font-display text-lg font-semibold text-[#1c202a]">
+              {activeTitle || "Untitled canvas"}
             </p>
           </div>
           <button
             type="button"
             onClick={() => setOpen(false)}
-            className="flex h-8 w-8 items-center justify-center rounded-full text-[#6b7285] transition hover:bg-[#eef0f4] hover:text-[#1c202a]"
-            aria-label="Close sidebar"
+            className="-mr-1 -mt-1 flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-[#6b7285] transition hover:bg-[#eef0f4] hover:text-[#1c202a]"
+            aria-label="Close panel"
           >
-            <X size={16} strokeWidth={1.8} />
+            <X size={17} strokeWidth={1.8} />
           </button>
         </div>
 
-        <div className="space-y-3 border-b border-[#eef0f4] px-4 py-4">
+        <div className="space-y-4 px-5 pb-5">
           <label className="block space-y-1.5">
-            <span className="text-xs font-medium uppercase tracking-wide text-[#6b7285]">
+            <span className="text-[11px] font-semibold uppercase tracking-[0.1em] text-[#9aa0ad]">
               Title
             </span>
             <input
               value={titleDraft}
-              onChange={(e) => setTitleDraft(e.target.value)}
-              className="w-full rounded-xl border border-[#e2e5eb] bg-[#f8f9fb] px-3 py-2 text-sm text-[#1c202a] outline-none focus:border-[#1c202a]/25 focus:bg-white focus:ring-2 focus:ring-[#1c202a]/10"
+              onChange={(e) => setTitle(e.target.value)}
+              className="w-full rounded-xl bg-[#f4f5f7] px-3 py-2.5 text-base text-[#1c202a] outline-none ring-1 ring-transparent transition focus:bg-white focus:ring-[#1c202a]/20 sm:py-2 sm:text-sm"
               placeholder="Untitled canvas"
             />
           </label>
 
-          <div className="grid grid-cols-2 gap-2">
-            <button
-              type="button"
-              onClick={handleCreate}
-              disabled={busy !== null}
-              className="flex h-10 items-center justify-center gap-1.5 rounded-xl bg-[#1c202a] text-sm font-medium text-white transition hover:bg-[#2b3140] disabled:opacity-50"
-            >
-              {busy === "create" ? (
-                <LoaderCircle size={16} className="animate-spin" />
-              ) : (
-                <Plus size={16} strokeWidth={1.8} />
-              )}
-              New
-            </button>
-            <button
-              type="button"
-              onClick={handleSave}
-              disabled={busy !== null}
-              className="flex h-10 items-center justify-center gap-1.5 rounded-xl border border-[#e2e5eb] text-sm font-medium text-[#1c202a] transition hover:bg-[#eef0f4] disabled:opacity-50"
-            >
-              {busy === "save" ? (
-                <LoaderCircle size={16} className="animate-spin" />
-              ) : (
-                <Save size={16} strokeWidth={1.8} />
-              )}
-              {dirty ? "Save*" : "Save"}
-            </button>
-          </div>
-
-          <button
-            type="button"
-            onClick={handleNewBlank}
-            className="flex h-9 w-full items-center justify-center rounded-xl text-sm text-[#6b7285] transition hover:bg-[#eef0f4] hover:text-[#1c202a]"
-          >
-            Clear to blank board
-          </button>
+          <p className="text-xs">
+            <SaveLine
+              status={saveStatus}
+              dirty={dirty}
+              loggedIn={Boolean(user)}
+            />
+          </p>
 
           {error ? (
             <p className="rounded-xl bg-[#fff1f0] px-3 py-2 text-xs text-[#c92a2a]">
               {error}
             </p>
           ) : null}
+
+          <button
+            type="button"
+            onClick={handleSave}
+            disabled={busy !== null || saveStatus === "saving"}
+            className="flex h-11 w-full items-center justify-center gap-1.5 rounded-xl bg-[#1c202a] text-sm font-medium text-white transition hover:bg-[#2b3140] disabled:opacity-50"
+          >
+            {busy === "save" || saveStatus === "saving" ? (
+              <LoaderCircle size={16} className="animate-spin" />
+            ) : (
+              <Save size={16} strokeWidth={1.8} />
+            )}
+            Save now
+          </button>
         </div>
 
-        <div className="flex-1 overflow-y-auto px-3 py-3">
-          {!user ? (
-            <div className="rounded-2xl bg-[#f8f9fb] px-4 py-6 text-center">
-              <p className="text-sm text-[#3f4555]">
-                Log in to create and store canvases in MongoDB.
-              </p>
-              <button
-                type="button"
-                onClick={onRequestLogin}
-                className="mt-3 text-sm font-medium text-[#1c202a] underline-offset-2 hover:underline"
-              >
-                Log in
-              </button>
-            </div>
-          ) : loading ? (
-            <div className="flex items-center justify-center gap-2 py-10 text-sm text-[#6b7285]">
-              <LoaderCircle size={16} className="animate-spin" />
-              Loading…
-            </div>
-          ) : canvases.length === 0 ? (
-            <div className="rounded-2xl bg-[#f8f9fb] px-4 py-6 text-center text-sm text-[#6b7285]">
-              No saved canvases yet. Click <strong>New</strong> to store this
-              board.
-            </div>
+        <div className="mt-auto space-y-1 border-t border-[#eef0f4] px-3 py-3">
+          {user ? (
+            <button
+              type="button"
+              onClick={onBrowseAll}
+              className="flex h-11 w-full items-center gap-2.5 rounded-xl px-2.5 text-sm text-[#3f4555] transition hover:bg-[#f4f5f7] hover:text-[#1c202a]"
+            >
+              <LayoutGrid size={16} strokeWidth={1.8} />
+              All canvases
+            </button>
+          ) : null}
+
+          <button
+            type="button"
+            onClick={handleNewBlank}
+            className="flex h-11 w-full items-center gap-2.5 rounded-xl px-2.5 text-sm text-[#3f4555] transition hover:bg-[#f4f5f7] hover:text-[#1c202a]"
+          >
+            <Plus size={16} strokeWidth={1.8} />
+            Blank board
+          </button>
+
+          {user ? (
+            <button
+              type="button"
+              onClick={handleDuplicateAsNew}
+              disabled={busy !== null}
+              className="flex h-11 w-full items-center gap-2.5 rounded-xl px-2.5 text-sm text-[#3f4555] transition hover:bg-[#f4f5f7] hover:text-[#1c202a] disabled:opacity-50"
+            >
+              {busy === "create" ? (
+                <LoaderCircle size={16} className="animate-spin" />
+              ) : (
+                <Save size={16} strokeWidth={1.8} />
+              )}
+              Save as a copy
+            </button>
           ) : (
-            <ul className="space-y-2">
-              {canvases.map((item) => {
-                const active = item.id === activeCanvasId;
-                return (
-                  <li key={item.id}>
-                    <div
-                      className={`rounded-2xl border p-3 transition ${
-                        active
-                          ? "border-[#1c202a]/20 bg-[#eef0f4]"
-                          : "border-transparent bg-[#f8f9fb] hover:border-[#e2e5eb]"
-                      }`}
-                    >
-                      <button
-                        type="button"
-                        onClick={() => handleOpen(item.id)}
-                        disabled={busy !== null}
-                        className="flex w-full items-start gap-2 text-left"
-                      >
-                        <FolderOpen
-                          size={16}
-                          strokeWidth={1.8}
-                          className="mt-0.5 shrink-0 text-[#6b7285]"
-                        />
-                        <span className="min-w-0 flex-1">
-                          <span className="block truncate text-sm font-medium text-[#1c202a]">
-                            {item.title}
-                          </span>
-                          <span className="mt-0.5 block text-xs text-[#6b7285]">
-                            {item.shapeCount} shapes
-                            {item.updatedAt
-                              ? ` · ${new Date(item.updatedAt).toLocaleDateString()}`
-                              : ""}
-                          </span>
-                        </span>
-                        {busy === `open:${item.id}` ? (
-                          <LoaderCircle
-                            size={14}
-                            className="mt-1 animate-spin text-[#6b7285]"
-                          />
-                        ) : null}
-                      </button>
-                      <div className="mt-2 flex justify-end">
-                        <button
-                          type="button"
-                          onClick={() => handleDelete(item.id)}
-                          disabled={busy !== null}
-                          className="flex h-8 items-center gap-1 rounded-lg px-2 text-xs text-[#c92a2a] transition hover:bg-[#fff1f0] disabled:opacity-50"
-                        >
-                          <Trash2 size={13} strokeWidth={1.8} />
-                          Delete
-                        </button>
-                      </div>
-                    </div>
-                  </li>
-                );
-              })}
-            </ul>
+            <button
+              type="button"
+              onClick={onRequestLogin}
+              className="flex h-11 w-full items-center justify-center rounded-xl bg-[#f4f5f7] text-sm font-medium text-[#1c202a] transition hover:bg-[#eef0f4]"
+            >
+              Log in to save boards
+            </button>
           )}
         </div>
       </aside>

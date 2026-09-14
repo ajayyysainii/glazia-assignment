@@ -23,10 +23,11 @@ import {
   MAX_SCALE,
   MIN_SCALE,
   SCALE_BY,
-  TRANSPARENT_FILL,
+  TRANSPARENT,
 } from "./constants";
 import { useCanvasHistory } from "./hooks/useCanvasHistory";
 import { useCanvasKeyboard } from "./hooks/useCanvasKeyboard";
+import { useCoarsePointer } from "./hooks/useMediaQuery";
 import { ShapeNode } from "./ShapeNode";
 import { TextEditor } from "./TextEditor";
 import type { CanvasShape, LineShape, Point, TextShape, Tool } from "./types";
@@ -42,7 +43,11 @@ export type DrawingCanvasHandle = {
     viewport: CanvasViewport;
   }) => void;
   clearLocal: () => void;
-  markClean: () => void;
+  /** Mark board clean against a specific snapshot (defaults to current). */
+  markClean: (doc?: {
+    shapes: CanvasShape[];
+    viewport: CanvasViewport;
+  }) => void;
 };
 
 type DrawingCanvasProps = {
@@ -68,6 +73,10 @@ const DrawingCanvas = forwardRef<DrawingCanvasHandle, DrawingCanvasProps>(
     const isPanning = useRef(false);
     const panLast = useRef<Point | null>(null);
     const draftOrigin = useRef<Point | null>(null);
+    /** Pinch/two-finger gesture state, in container-relative pixels. */
+    const gesture = useRef<{ dist: number; center: Point } | null>(null);
+    /** Ignore single-finger drawing until every finger has left the glass. */
+    const suppressDraw = useRef(false);
     const spaceHeld = useRef(false);
     const [spaceDown, setSpaceDown] = useState(false);
     const [panning, setPanning] = useState(false);
@@ -78,7 +87,7 @@ const DrawingCanvas = forwardRef<DrawingCanvasHandle, DrawingCanvasProps>(
     const [size, setSize] = useState({ width: 0, height: 0 });
     const [tool, setTool] = useState<Tool>("pen");
     const [color, setColor] = useState<string>(COLORS[0]);
-    const [fill, setFill] = useState<string>(TRANSPARENT_FILL);
+    const [fill, setFill] = useState<string>(TRANSPARENT);
     const [strokeWidth, setStrokeWidth] = useState(4);
     const [selectedId, setSelectedId] = useState<string | null>(null);
     const [editingTextId, setEditingTextId] = useState<string | null>(null);
@@ -107,6 +116,12 @@ const DrawingCanvas = forwardRef<DrawingCanvasHandle, DrawingCanvasProps>(
     const selectedIdRef = useRef(selectedId);
     shapesRef.current = shapes;
     selectedIdRef.current = selectedId;
+
+    // Touch moves can fire several times per frame, faster than state settles.
+    const viewRef = useRef({ pos: stagePos, scale: stageScale });
+    viewRef.current = { pos: stagePos, scale: stageScale };
+
+    const coarsePointer = useCoarsePointer();
 
     const editingText = shapes.find(
       (s): s is TextShape => s.kind === "text" && s.id === editingTextId,
@@ -216,11 +231,13 @@ const DrawingCanvas = forwardRef<DrawingCanvasHandle, DrawingCanvasProps>(
             viewport: { x: 0, y: 0, scale: 1 },
           });
         },
-        markClean: () => {
-          markSaved({
-            shapes,
-            viewport: { x: stagePos.x, y: stagePos.y, scale: stageScale },
-          });
+        markClean: (doc) => {
+          markSaved(
+            doc ?? {
+              shapes,
+              viewport: { x: stagePos.x, y: stagePos.y, scale: stageScale },
+            },
+          );
         },
       }),
       [shapes, stagePos, stageScale, markSaved, setShapes, setHistory, setHistoryIndex],
@@ -312,6 +329,74 @@ const DrawingCanvas = forwardRef<DrawingCanvasHandle, DrawingCanvasProps>(
       zoomAtPoint(pointer, nextScale);
     };
 
+    /** Touch coordinates relative to the stage container. */
+    const touchPoints = (evt: TouchEvent): Point[] => {
+      const stage = stageRef.current;
+      if (!stage) return [];
+      const rect = stage.container().getBoundingClientRect();
+      return Array.from(evt.touches).map((t) => ({
+        x: t.clientX - rect.left,
+        y: t.clientY - rect.top,
+      }));
+    };
+
+    const midpoint = (a: Point, b: Point): Point => ({
+      x: (a.x + b.x) / 2,
+      y: (a.y + b.y) / 2,
+    });
+
+    const distance = (a: Point, b: Point) =>
+      Math.hypot(a.x - b.x, a.y - b.y);
+
+    const isTouchEvent = (evt: MouseEvent | TouchEvent): evt is TouchEvent =>
+      "touches" in evt;
+
+    const isMultiTouch = (evt: MouseEvent | TouchEvent) =>
+      isTouchEvent(evt) && evt.touches.length >= 2;
+
+    /** Pinch to zoom and two-finger drag to pan, the standard touch pair. */
+    const handleGesture = (evt: TouchEvent) => {
+      const [a, b] = touchPoints(evt);
+      if (!a || !b) return;
+
+      const dist = distance(a, b);
+      const center = midpoint(a, b);
+      const previous = gesture.current;
+      gesture.current = { dist, center };
+      if (!previous || previous.dist === 0) return;
+
+      const { pos, scale } = viewRef.current;
+      const nextScale = Math.min(
+        MAX_SCALE,
+        Math.max(MIN_SCALE, scale * (dist / previous.dist)),
+      );
+
+      // Keep the content under the pinch centre pinned to the fingers, so the
+      // same gesture zooms and pans at once.
+      const pointTo = {
+        x: (previous.center.x - pos.x) / scale,
+        y: (previous.center.y - pos.y) / scale,
+      };
+      const nextPos = {
+        x: center.x - pointTo.x * nextScale,
+        y: center.y - pointTo.y * nextScale,
+      };
+
+      viewRef.current = { pos: nextPos, scale: nextScale };
+      setStageScale(nextScale);
+      setStagePos(nextPos);
+    };
+
+    /** Drop anything half-drawn when a gesture takes over. */
+    const cancelInteraction = () => {
+      isDrawing.current = false;
+      isPanning.current = false;
+      panLast.current = null;
+      draftOrigin.current = null;
+      setPanning(false);
+      setDraft(null);
+    };
+
     const shouldPan = (evt: MouseEvent | TouchEvent) => {
       if (tool === "hand" || spaceHeld.current) return true;
       if ("button" in evt && evt.button === 1) return true;
@@ -345,6 +430,29 @@ const DrawingCanvas = forwardRef<DrawingCanvasHandle, DrawingCanvasProps>(
 
       const stage = stageRef.current;
       if (!stage) return;
+
+      if (isTouchEvent(e.evt) && isMultiTouch(e.evt)) {
+        e.evt.preventDefault();
+        suppressDraw.current = true;
+        cancelInteraction();
+        const [a, b] = touchPoints(e.evt);
+        gesture.current = a && b
+          ? { dist: distance(a, b), center: midpoint(a, b) }
+          : null;
+        return;
+      }
+
+      // A fresh single-finger touchstart means the glass was empty a moment
+      // ago, so any earlier gesture is definitively over. Relying only on
+      // touchend to re-arm drawing leaves the canvas dead if the browser
+      // drops that event (it does, e.g. when a gesture is interrupted).
+      if (isTouchEvent(e.evt) && e.evt.touches.length === 1) {
+        suppressDraw.current = false;
+        gesture.current = null;
+      }
+
+      // A finger returning mid-gesture must not start a stray stroke.
+      if (suppressDraw.current) return;
 
       if (shouldPan(e.evt)) {
         isPanning.current = true;
@@ -395,7 +503,7 @@ const DrawingCanvas = forwardRef<DrawingCanvasHandle, DrawingCanvasProps>(
           height: 0,
           stroke: color,
           strokeWidth,
-          fill: fill === TRANSPARENT_FILL ? null : fill,
+          fill: fill === TRANSPARENT ? null : fill,
           rotation: 0,
         });
         return;
@@ -411,7 +519,7 @@ const DrawingCanvas = forwardRef<DrawingCanvasHandle, DrawingCanvasProps>(
           radiusY: 0,
           stroke: color,
           strokeWidth,
-          fill: fill === TRANSPARENT_FILL ? null : fill,
+          fill: fill === TRANSPARENT ? null : fill,
           rotation: 0,
         });
         return;
@@ -434,6 +542,14 @@ const DrawingCanvas = forwardRef<DrawingCanvasHandle, DrawingCanvasProps>(
     ) => {
       const stage = stageRef.current;
       if (!stage) return;
+
+      if (isTouchEvent(e.evt) && isMultiTouch(e.evt)) {
+        e.evt.preventDefault();
+        handleGesture(e.evt);
+        return;
+      }
+
+      if (suppressDraw.current) return;
 
       if (isPanning.current && panLast.current) {
         const pos = stage.getPointerPosition();
@@ -500,7 +616,17 @@ const DrawingCanvas = forwardRef<DrawingCanvasHandle, DrawingCanvasProps>(
       }
     };
 
-    const handlePointerUp = () => {
+    const handlePointerUp = (
+      e?: KonvaEventObject<MouseEvent | TouchEvent>,
+    ) => {
+      const evt = e?.evt;
+      if (evt && isTouchEvent(evt)) {
+        gesture.current = null;
+        // Only re-arm drawing once the last finger is up.
+        if (evt.touches.length > 0) return;
+        suppressDraw.current = false;
+      }
+
       isPanning.current = false;
       setPanning(false);
       panLast.current = null;
@@ -552,7 +678,7 @@ const DrawingCanvas = forwardRef<DrawingCanvasHandle, DrawingCanvasProps>(
           return;
         }
         updateShape(selectedId, {
-          fill: nextFill === TRANSPARENT_FILL ? null : nextFill,
+          fill: nextFill === TRANSPARENT ? null : nextFill,
         });
       },
       [selectedId, shapes, updateShape],
@@ -663,19 +789,30 @@ const DrawingCanvas = forwardRef<DrawingCanvasHandle, DrawingCanvasProps>(
               <Transformer
                 ref={transformerRef}
                 rotateEnabled
+                // Fingers need larger handles, and fewer of them to aim at.
+                anchorSize={coarsePointer ? 16 : 10}
+                anchorCornerRadius={coarsePointer ? 8 : 4}
+                rotateAnchorOffset={coarsePointer ? 34 : 20}
                 enabledAnchors={
                   editingText
                     ? []
-                    : [
-                        "top-left",
-                        "top-right",
-                        "bottom-left",
-                        "bottom-right",
-                        "middle-left",
-                        "middle-right",
-                        "top-center",
-                        "bottom-center",
-                      ]
+                    : coarsePointer
+                      ? [
+                          "top-left",
+                          "top-right",
+                          "bottom-left",
+                          "bottom-right",
+                        ]
+                      : [
+                          "top-left",
+                          "top-right",
+                          "bottom-left",
+                          "bottom-right",
+                          "middle-left",
+                          "middle-right",
+                          "top-center",
+                          "bottom-center",
+                        ]
                 }
                 flipEnabled={false}
                 boundBoxFunc={(oldBox, newBox) => {

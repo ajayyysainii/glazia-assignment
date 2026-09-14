@@ -9,8 +9,14 @@ export const COLORS = [
   "#9c36b5",
 ] as const;
 
+export const TRANSPARENT = "transparent";
+
+/** Stroke picker: none + solid colors */
+export const STROKE_COLORS = [TRANSPARENT, ...COLORS] as const;
+
+/** Fill picker: none + light fills */
 export const FILL_COLORS = [
-  "transparent",
+  TRANSPARENT,
   "#ffffff",
   "#ffc9c9",
   "#b2f2bb",
@@ -19,7 +25,8 @@ export const FILL_COLORS = [
   "#eebefa",
 ] as const;
 
-export const TRANSPARENT_FILL = "transparent";
+/** @deprecated use TRANSPARENT */
+export const TRANSPARENT_FILL = TRANSPARENT;
 
 export const STROKE_SIZES = [2, 4, 8] as const;
 
