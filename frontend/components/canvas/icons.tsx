@@ -7,6 +7,7 @@ import {
   Pencil,
   Redo2,
   Square,
+  Type,
   Undo2,
   type LucideProps,
 } from "lucide-react";
@@ -39,6 +40,10 @@ export function IconEllipse() {
 
 export function IconArrow() {
   return <ArrowRight {...iconProps} />;
+}
+
+export function IconText() {
+  return <Type {...iconProps} />;
 }
 
 export function IconEraser() {

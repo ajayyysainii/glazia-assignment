@@ -5,12 +5,16 @@ export type Tool =
   | "rect"
   | "ellipse"
   | "arrow"
+  | "text"
   | "eraser";
 
 export type BaseShape = {
   id: string;
   stroke: string;
   strokeWidth: number;
+  /** Fill color; omit / null / "transparent" = no fill */
+  fill?: string | null;
+  rotation?: number;
 };
 
 export type LineShape = BaseShape & {
@@ -40,10 +44,20 @@ export type ArrowShape = BaseShape & {
   points: number[];
 };
 
+export type TextShape = BaseShape & {
+  kind: "text";
+  x: number;
+  y: number;
+  text: string;
+  fontSize: number;
+  width?: number;
+};
+
 export type CanvasShape =
   | LineShape
   | RectShape
   | EllipseShape
-  | ArrowShape;
+  | ArrowShape
+  | TextShape;
 
 export type Point = { x: number; y: number };

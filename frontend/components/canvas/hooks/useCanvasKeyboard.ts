@@ -6,6 +6,7 @@ import type { CanvasShape, Tool } from "../types";
 
 type UseCanvasKeyboardArgs = {
   spaceHeld: MutableRefObject<boolean>;
+  onSpaceChange?: (down: boolean) => void;
   shapesRef: MutableRefObject<CanvasShape[]>;
   selectedIdRef: MutableRefObject<string | null>;
   historyRef: MutableRefObject<CanvasShape[][]>;
@@ -19,6 +20,7 @@ type UseCanvasKeyboardArgs = {
 
 export function useCanvasKeyboard({
   spaceHeld,
+  onSpaceChange,
   shapesRef,
   selectedIdRef,
   historyRef,
@@ -31,8 +33,19 @@ export function useCanvasKeyboard({
 }: UseCanvasKeyboardArgs) {
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null;
+      const typing =
+        target &&
+        (["INPUT", "TEXTAREA"].includes(target.tagName) ||
+          target.isContentEditable);
+
+      if (typing) return;
+
       if (e.code === "Space") {
-        spaceHeld.current = true;
+        if (!spaceHeld.current) {
+          spaceHeld.current = true;
+          onSpaceChange?.(true);
+        }
         e.preventDefault();
       }
 
@@ -61,8 +74,6 @@ export function useCanvasKeyboard({
       if (e.key === "Delete" || e.key === "Backspace") {
         const id = selectedIdRef.current;
         if (!id) return;
-        const target = e.target as HTMLElement | null;
-        if (target && ["INPUT", "TEXTAREA"].includes(target.tagName)) return;
         e.preventDefault();
         const next = shapesRef.current.filter((s) => s.id !== id);
         setShapes(next);
@@ -79,7 +90,10 @@ export function useCanvasKeyboard({
     };
 
     const onKeyUp = (e: KeyboardEvent) => {
-      if (e.code === "Space") spaceHeld.current = false;
+      if (e.code === "Space") {
+        spaceHeld.current = false;
+        onSpaceChange?.(false);
+      }
     };
 
     window.addEventListener("keydown", onKeyDown);
@@ -90,6 +104,7 @@ export function useCanvasKeyboard({
     };
   }, [
     spaceHeld,
+    onSpaceChange,
     shapesRef,
     selectedIdRef,
     historyRef,

@@ -22,6 +22,9 @@ export function normalizeRect(x1: number, y1: number, x2: number, y2: number) {
 }
 
 export function isShapeTooSmall(shape: CanvasShape) {
+  if (shape.kind === "text") {
+    return shape.text.trim().length === 0;
+  }
   if (shape.kind === "rect") {
     return Math.abs(shape.width) < 2 && Math.abs(shape.height) < 2;
   }
