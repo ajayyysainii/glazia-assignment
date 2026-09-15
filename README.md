@@ -67,7 +67,11 @@ npm install
 npm run dev              # http://localhost:3000
 ```
 
-No `.env` file is needed for local development. The front end calls
+```bash
+cp .env.example .env.local   # optional locally; required in production
+```
+
+No `.env` file is strictly needed for local development — the front end calls
 same-origin `/api/*`, and [`next.config.ts`](frontend/next.config.ts) rewrites
 that to `http://localhost:4000` by default.
 
@@ -104,6 +108,19 @@ glazia-assignment/
         ├── middleware/           authenticate, error handler
         └── utils/                Response envelope, AppError, JWT, hashing
 ```
+
+### Editing elements
+
+Selecting an element opens a properties panel bound to it — numeric **X/Y**,
+**width/height** (radius for ellipses, type size for text), **rotation**, the
+text content itself, plus **layer ordering** and delete. Fields commit on blur
+or <kbd>Enter</kbd> and revert on <kbd>Esc</kbd>, so a half-typed value never
+reaches the document and a single edit is one undo step rather than one per
+keystroke. The panel lives in the right-hand rail on desktop and folds into
+the toolbar's style sheet below `lg`, where there is no rail.
+
+Array order *is* z-order, so layering is a reorder of the `shapes` array and
+is captured by undo like any other edit.
 
 ### How drawing works
 
@@ -338,6 +355,13 @@ Beyond drawing and CRUD:
   notifications with a **Retry** action on failure, and a status line that
   distinguishes "saving", "all saved", "saved on this device only", and
   "nothing to save yet".
+- **Numeric property editing.** Exact values for position, size, rotation and
+  text, alongside the drag/transform handles — with layer ordering
+  (front / forward / backward / back) in the same panel.
+- **PNG export.** `stage.toDataURL()` cropped to the content's own bounds
+  rather than the current viewport, at 2× pixel ratio, flattened onto white
+  (Konva exports transparent) and with the selection handles hidden so they
+  don't end up in the file.
 - **Considered exit flows.** Custom confirm dialogs throughout (no
   `window.confirm`): leaving a board offers *Save & leave / Discard / Stay*,
   discarding genuinely reloads the last saved version, and an unnamed board is
@@ -379,9 +403,12 @@ Honest list — these are real, not hypothetical.
    would still expose an active session. httpOnly cookies would be stronger.
 8. **No rate limiting** on `/auth/login` or `/auth/register` — nothing slows a
    credential-stuffing attempt.
-9. **Thumbnail payloads grow the list response.** Capped per board (140 shapes,
+9. **Rotated shapes report axis-aligned bounds.** The inspector and PNG crop
+   use each shape's unrotated extent, so a heavily rotated element can sit
+   slightly inside the exported padding.
+10. **Thumbnail payloads grow the list response.** Capped per board (140 shapes,
    40 points per stroke), but a large library still returns a lot; there is no
    pagination on `GET /api/canvases`.
-10. **CD is not wired.** CI stops at build; nothing deploys automatically.
-11. **The CI workflow does not run in this monorepo** — see the note above
+11. **CD is not wired.** CI stops at build; nothing deploys automatically.
+12. **The CI workflow does not run in this monorepo** — see the note above
     about workflow discovery.
