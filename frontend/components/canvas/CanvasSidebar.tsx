@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import {
   Check,
   CloudOff,
+  Download,
   HardDrive,
   PenLine,
   LayoutGrid,
@@ -172,6 +173,32 @@ export function CanvasSidebar({
     }
   };
 
+  const handleExportPng = async () => {
+    setBusy("export");
+    try {
+      const dataUrl = await canvasRef.current?.exportPNG();
+      if (!dataUrl) {
+        toast.info("Nothing to export — the board is empty");
+        return;
+      }
+      const link = document.createElement("a");
+      link.href = dataUrl;
+      const base = (activeTitle.trim() || DEFAULT_TITLE)
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/^-+|-+$/g, "");
+      link.download = `${base || "canvas"}.png`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      toast.success("PNG exported");
+    } catch {
+      toast.error("Couldn't export this board as a PNG");
+    } finally {
+      setBusy(null);
+    }
+  };
+
   const handleNewBlank = async () => {
     if (dirty) {
       const { choice } = await confirm({
@@ -285,6 +312,20 @@ export function CanvasSidebar({
               All canvases
             </button>
           ) : null}
+
+          <button
+            type="button"
+            onClick={() => void handleExportPng()}
+            disabled={busy !== null}
+            className="flex h-11 w-full items-center gap-2.5 rounded-xl px-2.5 text-sm text-[#3f4555] transition hover:bg-[#f4f5f7] hover:text-[#1c202a] disabled:opacity-50"
+          >
+            {busy === "export" ? (
+              <LoaderCircle size={16} className="animate-spin" />
+            ) : (
+              <Download size={16} strokeWidth={1.8} />
+            )}
+            Export PNG
+          </button>
 
           <button
             type="button"

@@ -37,11 +37,11 @@ export function CanvasPalette({
   return (
     <aside
       aria-label="Stroke, fill and width"
-      className="flex min-h-0 flex-col gap-3 overflow-y-auto overscroll-contain rounded-2xl bg-white/95 p-3 shadow-[0_10px_40px_rgba(28,32,42,0.12)] ring-1 ring-black/5 backdrop-blur"
+      className="flex shrink-0 flex-col gap-3 rounded-2xl bg-white/95 p-3 shadow-[0_10px_40px_rgba(28,32,42,0.12)] ring-1 ring-black/5 backdrop-blur"
     >
       <div>
         <GroupLabel>Stroke</GroupLabel>
-        <div className="mt-2 grid grid-cols-3 gap-2">
+        <div className="mt-2 grid grid-cols-5 gap-2">
           {STROKE_COLORS.map((c) => (
             <SwatchButton
               key={`stroke-${c}`}
@@ -59,7 +59,7 @@ export function CanvasPalette({
 
       <div>
         <GroupLabel>Fill</GroupLabel>
-        <div className="mt-2 grid grid-cols-3 gap-2">
+        <div className="mt-2 grid grid-cols-5 gap-2">
           {FILL_COLORS.map((c) => (
             <SwatchButton
               key={`fill-${c}`}

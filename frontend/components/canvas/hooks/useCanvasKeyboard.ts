@@ -71,6 +71,12 @@ export function useCanvasKeyboard({
         }
       }
 
+      // Escape drops the selection, which also closes the properties panel.
+      if (e.key === "Escape") {
+        setSelectedId(null);
+        return;
+      }
+
       if (e.key === "Delete" || e.key === "Backspace") {
         const id = selectedIdRef.current;
         if (!id) return;

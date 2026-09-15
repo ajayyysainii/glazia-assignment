@@ -36,6 +36,12 @@ const TOOLS: { id: Tool; label: string; icon: ReactNode }[] = [
 ];
 
 type CanvasToolbarProps = {
+  /**
+   * Properties panel for the current selection. On desktop it lives in the
+   * right-hand rail; below `lg` there is no rail, so it is folded into this
+   * sheet — otherwise numeric editing would be unavailable on a phone.
+   */
+  inspector?: ReactNode;
   tool: Tool;
   color: string;
   fill: string;
@@ -72,6 +78,7 @@ function ShortcutBadge({
 const Divider = () => <div className="mx-1 h-6 w-px shrink-0 bg-[#e2e5eb]" />;
 
 export function CanvasToolbar({
+  inspector,
   tool,
   color,
   fill,
@@ -122,6 +129,12 @@ export function CanvasToolbar({
           </div>
 
           <div className="space-y-3">
+            {inspector ? (
+              <div className="-mx-1 max-h-[45dvh] overflow-y-auto overscroll-contain px-1">
+                {inspector}
+              </div>
+            ) : null}
+
             <div>
               <GroupLabel>Stroke</GroupLabel>
               <div className="no-scrollbar mt-1.5 flex items-center gap-2 overflow-x-auto pb-1">

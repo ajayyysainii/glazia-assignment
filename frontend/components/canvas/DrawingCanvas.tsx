@@ -15,6 +15,7 @@ import type Konva from "konva";
 import { Stage, Layer, Transformer } from "react-konva";
 import type { CanvasViewport } from "@/lib/canvas";
 import { CanvasGrid } from "./CanvasGrid";
+import { CanvasInspector, type LayerMove } from "./CanvasInspector";
 import { CanvasPalette } from "./CanvasPalette";
 import { CanvasToolbar } from "./CanvasToolbar";
 import { ZoomHud } from "./ZoomHud";
@@ -34,6 +35,7 @@ import { ShapeNode } from "./ShapeNode";
 import { TextEditor } from "./TextEditor";
 import type { CanvasShape, LineShape, Point, TextShape, Tool } from "./types";
 import { getStagePoint, isShapeTooSmall, normalizeRect, uid } from "./utils";
+import { boardBounds } from "./utils.bounds";
 
 export type DrawingCanvasHandle = {
   getSnapshot: () => {
@@ -50,6 +52,12 @@ export type DrawingCanvasHandle = {
     shapes: CanvasShape[];
     viewport: CanvasViewport;
   }) => void;
+  /**
+   * Render the drawn content to a PNG data URL, cropped to the content's
+   * own bounds rather than the current viewport. Returns null for an
+   * empty board.
+   */
+  exportPNG: (options?: { pixelRatio?: number }) => Promise<string | null>;
 };
 
 type DrawingCanvasProps = {
@@ -134,6 +142,10 @@ const DrawingCanvas = forwardRef<DrawingCanvasHandle, DrawingCanvasProps>(
     const editingText = shapes.find(
       (s): s is TextShape => s.kind === "text" && s.id === editingTextId,
     );
+
+    const selectedShape = selectedId
+      ? shapes.find((s) => s.id === selectedId)
+      : undefined;
 
     // Load initial document once on mount
     useEffect(() => {
@@ -247,6 +259,65 @@ const DrawingCanvas = forwardRef<DrawingCanvasHandle, DrawingCanvasProps>(
               viewport: { x: stagePos.x, y: stagePos.y, scale: stageScale },
             },
           );
+        },
+        exportPNG: async ({ pixelRatio = 2 } = {}) => {
+          const stage = stageRef.current;
+          const bounds = boardBounds(shapes);
+          if (!stage || !bounds) return null;
+
+          const pad = 24;
+          const width = Math.max(1, bounds.maxX - bounds.minX) + pad * 2;
+          const height = Math.max(1, bounds.maxY - bounds.minY) + pad * 2;
+
+          // Neutralise the viewport transform so the crop rect is simply
+          // [0, width] x [0, height]; Konva re-renders into a fresh canvas,
+          // so content scrolled off-screen is still captured. Restored
+          // immediately afterwards, before React paints again.
+          const previous = {
+            x: stage.x(),
+            y: stage.y(),
+            scale: stage.scaleX(),
+          };
+          const transformer = transformerRef.current;
+          transformer?.visible(false);
+          stage.position({ x: -bounds.minX + pad, y: -bounds.minY + pad });
+          stage.scale({ x: 1, y: 1 });
+          stage.draw();
+
+          let raw: string;
+          try {
+            raw = stage.toDataURL({
+              x: 0,
+              y: 0,
+              width,
+              height,
+              pixelRatio,
+            });
+          } finally {
+            stage.position({ x: previous.x, y: previous.y });
+            stage.scale({ x: previous.scale, y: previous.scale });
+            transformer?.visible(true);
+            stage.draw();
+          }
+
+          // Konva exports a transparent background; flatten onto white so the
+          // file looks like the board rather than a floating sketch.
+          return new Promise<string | null>((resolve) => {
+            const image = new window.Image();
+            image.onload = () => {
+              const canvas = document.createElement("canvas");
+              canvas.width = image.width;
+              canvas.height = image.height;
+              const ctx = canvas.getContext("2d");
+              if (!ctx) return resolve(raw);
+              ctx.fillStyle = "#ffffff";
+              ctx.fillRect(0, 0, canvas.width, canvas.height);
+              ctx.drawImage(image, 0, 0);
+              resolve(canvas.toDataURL("image/png"));
+            };
+            image.onerror = () => resolve(raw);
+            image.src = raw;
+          });
         },
       }),
       [shapes, stagePos, stageScale, markSaved, setShapes, setHistory, setHistoryIndex],
@@ -704,6 +775,40 @@ const DrawingCanvas = forwardRef<DrawingCanvasHandle, DrawingCanvasProps>(
       [selectedId, shapes, updateShape],
     );
 
+    const deleteShape = useCallback(
+      (id: string) => {
+        commitShapes(shapesRef.current.filter((s) => s.id !== id));
+        setSelectedId(null);
+        setEditingTextId(null);
+      },
+      [commitShapes],
+    );
+
+    /** Array order *is* z-order, so layering is a reorder. */
+    const moveShapeLayer = useCallback(
+      (id: string, move: LayerMove) => {
+        const current = shapesRef.current;
+        const from = current.findIndex((s) => s.id === id);
+        if (from === -1) return;
+
+        const to =
+          move === "front"
+            ? current.length - 1
+            : move === "back"
+              ? 0
+              : move === "forward"
+                ? Math.min(current.length - 1, from + 1)
+                : Math.max(0, from - 1);
+        if (to === from) return;
+
+        const next = [...current];
+        const [moved] = next.splice(from, 1);
+        next.splice(to, 0, moved!);
+        commitShapes(next);
+      },
+      [commitShapes],
+    );
+
     const registerRef = useCallback((id: string, node: Konva.Node | null) => {
       if (node) shapeRefs.current[id] = node;
       else delete shapeRefs.current[id];
@@ -720,6 +825,19 @@ const DrawingCanvas = forwardRef<DrawingCanvasHandle, DrawingCanvasProps>(
             ? "text"
             : "crosshair";
 
+    const inspectorPanel =
+      selectedShape && !editingTextId ? (
+        <CanvasInspector
+          // Remount on selection change so a half-typed value can never
+          // linger in the fields showing a number the shape doesn't have.
+          key={selectedShape.id}
+          shape={selectedShape}
+          onChange={updateShape}
+          onDelete={deleteShape}
+          onLayerMove={moveShapeLayer}
+        />
+      ) : null;
+
     return (
       <div
         ref={containerRef}
@@ -728,6 +846,7 @@ const DrawingCanvas = forwardRef<DrawingCanvasHandle, DrawingCanvasProps>(
       >
         <CanvasGrid stageScale={stageScale} stagePos={stagePos} />
         <CanvasToolbar
+          inspector={inspectorPanel}
           tool={tool}
           color={color}
           fill={fill}
@@ -750,9 +869,18 @@ const DrawingCanvas = forwardRef<DrawingCanvasHandle, DrawingCanvasProps>(
             under them. A column keeps the footer glued below the palette as
             it grows or scrolls. */}
         <div
-          className="absolute right-5 top-[5.75rem] z-40 hidden max-h-[calc(100dvh_-_8.5rem)] w-[7.25rem] flex-col items-stretch gap-2 lg:flex"
+          className="no-scrollbar absolute right-5 top-[5.75rem] z-40 hidden max-h-[calc(100dvh_-_8.5rem)] w-52 flex-col items-stretch gap-2 overflow-y-auto overscroll-contain lg:flex"
           style={{ marginRight: "var(--safe-right)" }}
         >
+          {selectedShape && !editingTextId ? (
+            <CanvasInspector
+              shape={selectedShape}
+              onChange={updateShape}
+              onDelete={deleteShape}
+              onLayerMove={moveShapeLayer}
+            />
+          ) : null}
+
           <CanvasPalette
             color={color}
             fill={fill}
