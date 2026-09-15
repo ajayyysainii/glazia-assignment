@@ -3,6 +3,7 @@
 import dynamic from "next/dynamic";
 import { AuthProvider } from "@/lib/auth";
 import { ConfirmProvider, ToastProvider } from "@/components/ui";
+import { ServerBootGate } from "@/components/ServerBootGate";
 
 const CanvasWorkspace = dynamic(
   () => import("@/components/canvas/CanvasWorkspace"),
@@ -18,12 +19,16 @@ const CanvasWorkspace = dynamic(
 
 export default function Home() {
   return (
-    <AuthProvider>
-      <ToastProvider>
-        <ConfirmProvider>
-          <CanvasWorkspace />
-        </ConfirmProvider>
-      </ToastProvider>
-    </AuthProvider>
+    // Outside AuthProvider on purpose: session restore hits the API, and
+    // firing that at a sleeping server just stalls behind the cold start.
+    <ServerBootGate>
+      <AuthProvider>
+        <ToastProvider>
+          <ConfirmProvider>
+            <CanvasWorkspace />
+          </ConfirmProvider>
+        </ToastProvider>
+      </AuthProvider>
+    </ServerBootGate>
   );
 }

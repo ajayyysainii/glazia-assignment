@@ -132,6 +132,21 @@ Pan and zoom are stage-level transforms, so the plane is effectively infinite
 and the viewport is saved alongside the shapes — reopening a board restores
 where you were looking.
 
+### Cold starts
+
+Free hosts sleep an idle instance, so the first visit can sit behind a ~50s
+wake-up. [`ServerBootGate`](frontend/components/ServerBootGate.tsx) probes
+`GET /api/health` before mounting the auth provider — firing session restore
+at a sleeping server would just stall behind the same cold start.
+
+A warm server answers in milliseconds, so nothing renders for the first
+1.2s; only past that does it show "Booting up the server" with an elapsed
+counter, retrying every 2.5s and giving up at 90s with a retry option. A
+non-2xx counts as "not ready" just like a failed request, because a sleeping
+host answers 502/503 from its edge while booting. The gate can always be
+dismissed — drawing works without the API, since signed-out boards are kept
+on the device.
+
 ### How saving works
 
 [`useCanvasPersistence`](frontend/components/canvas/hooks/useCanvasPersistence.ts)
@@ -362,6 +377,9 @@ Beyond drawing and CRUD:
   rather than the current viewport, at 2× pixel ratio, flattened onto white
   (Konva exports transparent) and with the selection handles hidden so they
   don't end up in the file.
+- **Cold-start handling.** A health probe with a "Booting up the server"
+  loader, so a sleeping free-tier backend reads as *waking* rather than
+  *broken* — and never traps you, since the gate is dismissable.
 - **Considered exit flows.** Custom confirm dialogs throughout (no
   `window.confirm`): leaving a board offers *Save & leave / Discard / Stay*,
   discarding genuinely reloads the last saved version, and an unnamed board is
