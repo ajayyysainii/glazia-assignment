@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import {
   Check,
   CloudOff,
+  HardDrive,
   PenLine,
   LayoutGrid,
   LoaderCircle,
@@ -23,6 +24,7 @@ type CanvasSidebarProps = {
   activeTitle: string;
   dirty: boolean;
   nothingToSave: boolean;
+  storageBlocked: boolean;
   saveStatus: SaveStatus;
   onSaveErrorClear: () => void;
   onPersist: (options?: {
@@ -41,18 +43,26 @@ function SaveLine({
   status,
   dirty,
   nothingToSave,
+  storageBlocked,
   loggedIn,
 }: {
   status: SaveStatus;
   dirty: boolean;
   nothingToSave: boolean;
+  storageBlocked: boolean;
   loggedIn: boolean;
 }) {
   if (!loggedIn) {
-    return (
-      <span className="flex items-center gap-1.5 text-[#9aa0ad]">
+    // Signed-out boards live in this browser, so don't claim nothing is saved.
+    return storageBlocked ? (
+      <span className="flex items-center gap-1.5 text-[#c92a2a]">
         <CloudOff size={13} strokeWidth={1.8} />
-        Not saving — you are logged out
+        This browser won't store the board
+      </span>
+    ) : (
+      <span className="flex items-center gap-1.5 text-[#6b7285]">
+        <HardDrive size={13} strokeWidth={1.8} />
+        Saved on this device only
       </span>
     );
   }
@@ -94,6 +104,7 @@ export function CanvasSidebar({
   activeTitle,
   dirty,
   nothingToSave,
+  storageBlocked,
   saveStatus,
   onSaveErrorClear,
   onPersist,
@@ -243,6 +254,7 @@ export function CanvasSidebar({
               status={saveStatus}
               dirty={dirty}
               nothingToSave={nothingToSave}
+              storageBlocked={storageBlocked}
               loggedIn={Boolean(user)}
             />
           </p>

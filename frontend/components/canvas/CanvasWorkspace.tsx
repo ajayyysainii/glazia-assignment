@@ -10,9 +10,10 @@ import { CanvasDashboard } from "@/components/canvas/CanvasDashboard";
 import { CanvasSidebar } from "@/components/canvas/CanvasSidebar";
 import { SaveStatusHud } from "@/components/canvas/SaveStatusHud";
 import { useCanvasPersistence } from "@/components/canvas/hooks/useCanvasPersistence";
+import { useGuestDraft } from "@/components/canvas/hooks/useGuestDraft";
 import { useConfirm, useToast } from "@/components/ui";
 import { useAuth } from "@/lib/auth";
-import { getCanvas, type CanvasDocument } from "@/lib/canvas";
+import { clearGuestDraft, getCanvas, type CanvasDocument } from "@/lib/canvas";
 import { DEFAULT_TITLE } from "@/components/canvas/constants";
 import { ApiError } from "@/lib/api/client";
 
@@ -60,6 +61,16 @@ function WorkspaceInner() {
     onDirtyChange: setDirty,
   });
 
+  // Signed out, the board lives on this device instead of the server.
+  const { storageBlocked } = useGuestDraft({
+    canvasRef,
+    enabled: !loading && !user,
+    // Raw `dirty`, not `hasUnsavedWork`: emptying the board is a real change
+    // for local storage (the stored draft has to be deleted), even though the
+    // server-side rule treats an empty board as nothing to save.
+    dirty,
+  });
+
   // Logging out drops you back onto the board; there is no library to show.
   useEffect(() => {
     if (!loading && !user) setDashboardOverride(false);
@@ -88,6 +99,56 @@ function WorkspaceInner() {
     window.addEventListener("beforeunload", onBeforeUnload);
     return () => window.removeEventListener("beforeunload", onBeforeUnload);
   }, [hasUnsavedWork]);
+
+  // Warn once if the device refuses to store the signed-out board, since the
+  // usual "it's safe here" promise no longer holds.
+  const warnedBlocked = useRef(false);
+  useEffect(() => {
+    if (!storageBlocked || warnedBlocked.current) return;
+    warnedBlocked.current = true;
+    toast.error(
+      "This browser won't let the board save on your device. Log in to keep it.",
+    );
+  }, [storageBlocked, toast]);
+
+  // Signing in mid-session: offer to keep whatever was drawn while signed out.
+  const previousUserId = useRef<string | null>(null);
+  useEffect(() => {
+    const previous = previousUserId.current;
+    previousUserId.current = user?.id ?? null;
+    if (!user || previous || loading) return;
+    if (boardEmpty) {
+      void clearGuestDraft();
+      return;
+    }
+
+    let cancelled = false;
+    void (async () => {
+      const { choice, value } = await confirm({
+        title: "Keep the board you were drawing?",
+        description:
+          "It was saved on this device while you were signed out. Save it to your canvases to reach it anywhere.",
+        input: {
+          label: "Canvas name",
+          placeholder: DEFAULT_TITLE,
+          maxLength: 120,
+        },
+        confirmLabel: "Save to my canvases",
+        cancelLabel: "Leave it on this device",
+      });
+      if (cancelled || choice !== "confirm") return;
+
+      const saved = await persist({ title: value || DEFAULT_TITLE });
+      if (!saved) return;
+      await clearGuestDraft();
+      toast.success(`Saved as “${saved && value ? value : DEFAULT_TITLE}”`);
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- runs on sign-in
+  }, [user, loading]);
 
   const loadCanvas = useCallback((canvas: CanvasDocument) => {
     canvasRef.current?.loadDocument({
@@ -238,7 +299,11 @@ function WorkspaceInner() {
       </div>
 
       <AuthModals mode={authMode} onModeChange={setAuthMode} />
-      <SaveStatusHud status={status} loggedIn={Boolean(user)} />
+      <SaveStatusHud
+        status={status}
+        loggedIn={Boolean(user)}
+        storageBlocked={storageBlocked}
+      />
 
       {/* One cluster, so the board chrome reads as a single control surface
           rather than a column of unrelated floating buttons. */}
@@ -286,6 +351,7 @@ function WorkspaceInner() {
         dirty={hasUnsavedWork}
         // Empty and never saved: autosave deliberately leaves it alone.
         nothingToSave={nothingToSave}
+        storageBlocked={storageBlocked}
         saveStatus={status}
         onSaveErrorClear={() => setError(null)}
         onPersist={persist}

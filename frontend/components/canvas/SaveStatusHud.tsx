@@ -1,6 +1,8 @@
 type SaveStatusHudProps = {
   status: "idle" | "saving" | "saved" | "error";
   loggedIn: boolean;
+  /** Signed out and the device refused to store the board. */
+  storageBlocked?: boolean;
 };
 
 // Sits under the zoom HUD on small screens, beside it on desktop.
@@ -14,14 +16,24 @@ const OFFSET = {
 
 // Ambient state only. Failures are raised as toasts, where they can carry a
 // retry and can't be mistaken for a passive label.
-export function SaveStatusHud({ status, loggedIn }: SaveStatusHudProps) {
+export function SaveStatusHud({
+  status,
+  loggedIn,
+  storageBlocked = false,
+}: SaveStatusHudProps) {
   if (!loggedIn) {
+    // Signed-out boards are kept in this browser, so say so rather than
+    // implying nothing is being saved at all.
     return (
       <div
-        className={`${POSITION} bg-white/95 text-[#6b7285] ring-black/5`}
+        className={`${POSITION} ${
+          storageBlocked
+            ? "bg-[#fff1f0] text-[#c92a2a] ring-[#c92a2a]/10"
+            : "bg-white/95 text-[#6b7285] ring-black/5"
+        }`}
         style={OFFSET}
       >
-        Log in to auto-save
+        {storageBlocked ? "Not saved — storage blocked" : "Saved on this device"}
       </div>
     );
   }
