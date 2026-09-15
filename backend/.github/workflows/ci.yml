@@ -21,8 +21,8 @@ permissions:
   contents: read
 
 jobs:
-  build:
-    name: Typecheck & build
+  verify:
+    name: Lint, typecheck & build
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -36,17 +36,31 @@ jobs:
       - name: Install
         run: npm ci
 
-      # `npm run build` is tsc, so this is the typecheck as well.
+      # Each check runs even if an earlier one failed, so a single push
+      # reports every problem at once instead of one per re-run.
+      - name: Lint
+        id: lint
+        run: npm run lint
+
+      - name: Typecheck
+        id: typecheck
+        if: ${{ !cancelled() }}
+        run: npm run typecheck
+
       - name: Build
+        id: build
+        if: ${{ !cancelled() }}
         run: npm run build
 
       - name: Verify the built entrypoint exists
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         run: test -f dist/index.js
 
       # Proves the emitted JavaScript actually runs — tsc alone won't catch a
       # bad ESM specifier or a broken import at runtime. No database needed:
       # a missing DB_URI must make startup exit non-zero rather than hang.
       - name: Startup rejects an incomplete environment
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         run: |
           set +e
           timeout 30s node dist/index.js > boot.log 2>&1
@@ -64,3 +78,23 @@ jobs:
           echo "Rejected an incomplete environment as expected (exit $code)"
         env:
           NODE_ENV: test
+
+  audit:
+    name: Dependency audit (advisory)
+    runs-on: ubuntu-latest
+    # Advisory: a new upstream advisory shouldn't turn every unrelated PR red.
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install
+        run: npm ci
+
+      - name: npm audit
+        run: npm audit --audit-level=high
