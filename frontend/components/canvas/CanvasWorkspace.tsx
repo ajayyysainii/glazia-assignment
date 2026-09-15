@@ -13,6 +13,7 @@ import { useCanvasPersistence } from "@/components/canvas/hooks/useCanvasPersist
 import { useConfirm, useToast } from "@/components/ui";
 import { useAuth } from "@/lib/auth";
 import { getCanvas, type CanvasDocument } from "@/lib/canvas";
+import { DEFAULT_TITLE } from "@/components/canvas/constants";
 import { ApiError } from "@/lib/api/client";
 
 function WorkspaceInner() {
@@ -22,7 +23,7 @@ function WorkspaceInner() {
   const canvasRef = useRef<DrawingCanvasHandle>(null);
   const [authMode, setAuthMode] = useState<AuthMode>(null);
   const [activeCanvasId, setActiveCanvasId] = useState<string | null>(null);
-  const [activeTitle, setActiveTitle] = useState("Untitled canvas");
+  const [activeTitle, setActiveTitle] = useState(DEFAULT_TITLE);
   const [dirty, setDirty] = useState(false);
   const [boardEmpty, setBoardEmpty] = useState(true);
   // `null` means "not decided yet", so the first paint after auth resolves
@@ -102,7 +103,7 @@ function WorkspaceInner() {
   const discardChanges = useCallback(async () => {
     if (!activeCanvasId) {
       canvasRef.current?.clearLocal();
-      onActiveChange({ id: null, title: "Untitled canvas" });
+      onActiveChange({ id: null, title: DEFAULT_TITLE });
       return;
     }
     try {
@@ -122,39 +123,78 @@ function WorkspaceInner() {
   }, [activeCanvasId, onActiveChange, toast]);
 
   const openDashboard = useCallback(async () => {
-    const choice = hasUnsavedWork
+    // A board worth keeping that still carries the placeholder title gets one
+    // chance to be named — otherwise the library fills with "Untitled canvas".
+    const named =
+      activeTitle.trim() !== "" && activeTitle.trim() !== DEFAULT_TITLE;
+    const askForName = !nothingToSave && !named;
+
+    const nameField = askForName
+      ? {
+          label: "Canvas name",
+          placeholder: DEFAULT_TITLE,
+          maxLength: 120,
+        }
+      : undefined;
+
+    const { choice, value } = nothingToSave
       ? await confirm({
           title: "Leave this board?",
-          description:
-            "You have changes that haven't been saved yet. Save them, discard them, or stay here.",
-          confirmLabel: "Save & leave",
-          altLabel: "Discard changes",
-          cancelLabel: "Stay",
-        })
-      : await confirm({
-          title: "Leave this board?",
-          description: nothingToSave
-            ? "This board is still empty, so there is nothing to lose."
-            : "Every change here is saved. You can reopen it anytime.",
+          description: "This board is still empty, so there is nothing to lose.",
           confirmLabel: "Leave",
           cancelLabel: "Stay",
-        });
+        })
+      : hasUnsavedWork
+        ? await confirm({
+            title: askForName ? "Name this board before you go" : "Leave this board?",
+            description: askForName
+              ? "It still has unsaved changes and no name yet."
+              : "You have changes that haven't been saved yet. Save them, discard them, or stay here.",
+            input: nameField,
+            confirmLabel: "Save & leave",
+            altLabel: "Discard changes",
+            cancelLabel: "Stay",
+          })
+        : await confirm({
+            title: askForName ? "Name this board before you go" : "Leave this board?",
+            description: askForName
+              ? "Give it a name you'll recognise in your canvases."
+              : "Every change here is saved. You can reopen it anytime.",
+            input: nameField,
+            confirmLabel: askForName ? "Save name & leave" : "Leave",
+            cancelLabel: "Stay",
+          });
 
     if (choice === "cancel") return;
-
-    if (choice === "confirm" && hasUnsavedWork) {
-      const saved = await persist();
-      if (!saved) return; // The failure toast already explained why.
-      toast.success("Board saved");
-    }
 
     if (choice === "alt") {
       await discardChanges();
       toast.info("Changes discarded");
+      setDashboardOverride(true);
+      return;
+    }
+
+    // Leaving the field blank is an answer too: keep the placeholder name.
+    const nextTitle = askForName && value ? value : null;
+
+    if (nextTitle || hasUnsavedWork) {
+      const saved = await persist(
+        nextTitle ? { title: nextTitle } : undefined,
+      );
+      if (!saved) return; // The failure toast already explained why.
+      toast.success(nextTitle ? `Saved as “${nextTitle}”` : "Board saved");
     }
 
     setDashboardOverride(true);
-  }, [confirm, hasUnsavedWork, nothingToSave, discardChanges, persist, toast]);
+  }, [
+    activeTitle,
+    confirm,
+    discardChanges,
+    hasUnsavedWork,
+    nothingToSave,
+    persist,
+    toast,
+  ]);
 
   // Hold the board back until the session is known, so a logged-in visitor
   // never sees the canvas flash past before their library appears.

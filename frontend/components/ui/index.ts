@@ -4,4 +4,5 @@ export {
   useConfirm,
   type ConfirmChoice,
   type ConfirmRequest,
+  type ConfirmResult,
 } from "./ConfirmProvider";

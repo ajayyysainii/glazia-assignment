@@ -41,7 +41,16 @@ export function useCanvasPersistence({
   titleRef.current = activeTitle;
 
   const persist = useCallback(
-    async (options?: { silent?: boolean; forceCreate?: boolean }) => {
+    async (options?: {
+      silent?: boolean;
+      forceCreate?: boolean;
+      /**
+       * Title to write instead of the current one. Needed when a caller has
+       * just collected a name: React state (and so `titleRef`) has not
+       * re-rendered yet at the moment the save fires.
+       */
+      title?: string;
+    }) => {
       if (!user) return null;
       const snapshot = canvasRef.current?.getSnapshot();
       if (!snapshot) return null;
@@ -73,6 +82,7 @@ export function useCanvasPersistence({
 
       try {
         const title =
+          options?.title?.trim() ||
           titleRef.current.trim() ||
           `Canvas ${new Date().toLocaleString(undefined, {
             month: "short",

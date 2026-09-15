@@ -59,3 +59,5 @@ export const MIN_SCALE = 0.05;
 export const MAX_SCALE = 16;
 export const SCALE_BY = 1.08;
 export const DEFAULT_TEXT = "Text";
+/** Placeholder title for a board the user hasn't named. */
+export const DEFAULT_TITLE = "Untitled canvas";

@@ -5,6 +5,7 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useId,
   useRef,
   useState,
   type ReactNode,
@@ -20,25 +21,45 @@ export type ConfirmRequest = {
   altLabel?: string;
   cancelLabel?: string;
   tone?: "default" | "danger";
+  /** Ask for a value alongside the decision, e.g. a name. */
+  input?: {
+    label: string;
+    placeholder?: string;
+    defaultValue?: string;
+    maxLength?: number;
+  };
 };
 
-type ConfirmFn = (request: ConfirmRequest) => Promise<ConfirmChoice>;
+export type ConfirmResult = {
+  choice: ConfirmChoice;
+  /** Trimmed input value; empty string when the dialog had no input. */
+  value: string;
+};
+
+type ConfirmFn = (request: ConfirmRequest) => Promise<ConfirmResult>;
 
 const ConfirmContext = createContext<ConfirmFn | null>(null);
 
 type PendingDialog = ConfirmRequest & {
-  resolve: (choice: ConfirmChoice) => void;
+  resolve: (result: ConfirmResult) => void;
 };
 
 export function ConfirmProvider({ children }: { children: ReactNode }) {
   const [pending, setPending] = useState<PendingDialog | null>(null);
+  const [value, setValue] = useState("");
   const confirmRef = useRef<HTMLButtonElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const valueRef = useRef("");
   const previousFocus = useRef<HTMLElement | null>(null);
+  const inputId = useId();
+
+  valueRef.current = value;
 
   const confirm = useCallback<ConfirmFn>(
     (request) =>
-      new Promise<ConfirmChoice>((resolve) => {
+      new Promise<ConfirmResult>((resolve) => {
         previousFocus.current = document.activeElement as HTMLElement | null;
+        setValue(request.input?.defaultValue ?? "");
         setPending({ ...request, resolve });
       }),
     [],
@@ -47,7 +68,7 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
   const settle = useCallback(
     (choice: ConfirmChoice) => {
       setPending((current) => {
-        current?.resolve(choice);
+        current?.resolve({ choice, value: valueRef.current.trim() });
         return null;
       });
       // Send focus back where it came from, so keyboard users don't restart
@@ -59,7 +80,13 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (!pending) return;
-    confirmRef.current?.focus();
+    // When there is something to fill in, that is where the cursor belongs.
+    if (pending.input) {
+      inputRef.current?.focus();
+      inputRef.current?.select();
+    } else {
+      confirmRef.current?.focus();
+    }
 
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
@@ -110,6 +137,34 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
               <p id="confirm-body" className="mt-2 text-sm text-[#6b7285]">
                 {pending.description}
               </p>
+            ) : null}
+
+            {pending.input ? (
+              // Not a <form>: with the buttons outside it, implicit submission
+              // never fires, so Enter is handled on the field itself.
+              <div className="mt-4">
+                <label
+                  htmlFor={inputId}
+                  className="text-[11px] font-semibold uppercase tracking-[0.1em] text-[#9aa0ad]"
+                >
+                  {pending.input.label}
+                </label>
+                <input
+                  ref={inputRef}
+                  id={inputId}
+                  value={value}
+                  onChange={(e) => setValue(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      settle("confirm");
+                    }
+                  }}
+                  placeholder={pending.input.placeholder}
+                  maxLength={pending.input.maxLength ?? 120}
+                  className="mt-1.5 w-full rounded-xl bg-[#f4f5f7] px-3.5 py-3 text-base text-[#1c202a] outline-none ring-1 ring-transparent transition placeholder:text-[#9aa0ad] focus:bg-white focus:ring-[#1c202a]/25 sm:py-2.5 sm:text-sm"
+                />
+              </div>
             ) : null}
 
             <div className="mt-6 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">

@@ -14,6 +14,7 @@ import {
 import { ApiError } from "@/lib/api/client";
 import { useConfirm, useToast } from "@/components/ui";
 import { CanvasThumbnail } from "./CanvasThumbnail";
+import { DEFAULT_TITLE } from "./constants";
 import { useCoarsePointer } from "./hooks/useMediaQuery";
 
 type CanvasDashboardProps = {
@@ -103,7 +104,7 @@ export function CanvasDashboard({
     try {
       onCreate(
         await createCanvas({
-          title: "Untitled canvas",
+          title: DEFAULT_TITLE,
           shapes: [],
           viewport: { x: 0, y: 0, scale: 1 },
         }),
@@ -129,7 +130,7 @@ export function CanvasDashboard({
   };
 
   const handleDelete = async (id: string, title: string) => {
-    const choice = await confirm({
+    const { choice } = await confirm({
       title: `Delete “${title}”?`,
       description:
         "The board and everything drawn on it will be gone for good. This can't be undone.",

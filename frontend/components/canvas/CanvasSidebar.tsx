@@ -14,6 +14,7 @@ import {
 import { useConfirm, useToast } from "@/components/ui";
 import { useAuth } from "@/lib/auth";
 import type { DrawingCanvasHandle } from "@/components/canvas/DrawingCanvas";
+import { DEFAULT_TITLE } from "@/components/canvas/constants";
 import type { SaveStatus } from "@/components/canvas/hooks/useCanvasPersistence";
 
 type CanvasSidebarProps = {
@@ -162,7 +163,7 @@ export function CanvasSidebar({
 
   const handleNewBlank = async () => {
     if (dirty) {
-      const choice = await confirm({
+      const { choice } = await confirm({
         title: "Start a blank board?",
         description: user
           ? "This board has unsaved changes. They'll be lost unless you save first."
@@ -174,8 +175,8 @@ export function CanvasSidebar({
       if (choice !== "confirm") return;
     }
     canvasRef.current?.clearLocal();
-    onActiveChange({ id: null, title: "Untitled canvas" });
-    setTitleDraft("Untitled canvas");
+    onActiveChange({ id: null, title: DEFAULT_TITLE });
+    setTitleDraft(DEFAULT_TITLE);
     setOpen(false);
   };
 
@@ -211,7 +212,7 @@ export function CanvasSidebar({
               This board
             </p>
             <p className="mt-1.5 truncate font-display text-lg font-semibold text-[#1c202a]">
-              {activeTitle || "Untitled canvas"}
+              {activeTitle || DEFAULT_TITLE}
             </p>
           </div>
           <button
@@ -233,7 +234,7 @@ export function CanvasSidebar({
               value={titleDraft}
               onChange={(e) => setTitle(e.target.value)}
               className="w-full rounded-xl bg-[#f4f5f7] px-3 py-2.5 text-base text-[#1c202a] outline-none ring-1 ring-transparent transition focus:bg-white focus:ring-[#1c202a]/20 sm:py-2 sm:text-sm"
-              placeholder="Untitled canvas"
+              placeholder={DEFAULT_TITLE}
             />
           </label>
 
