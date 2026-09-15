@@ -2,6 +2,7 @@
 
 import dynamic from "next/dynamic";
 import { AuthProvider } from "@/lib/auth";
+import { ConfirmProvider, ToastProvider } from "@/components/ui";
 
 const CanvasWorkspace = dynamic(
   () => import("@/components/canvas/CanvasWorkspace"),
@@ -18,7 +19,11 @@ const CanvasWorkspace = dynamic(
 export default function Home() {
   return (
     <AuthProvider>
-      <CanvasWorkspace />
+      <ToastProvider>
+        <ConfirmProvider>
+          <CanvasWorkspace />
+        </ConfirmProvider>
+      </ToastProvider>
     </AuthProvider>
   );
 }

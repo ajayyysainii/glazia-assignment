@@ -4,12 +4,14 @@ import { useEffect, useState } from "react";
 import {
   Check,
   CloudOff,
+  PenLine,
   LayoutGrid,
   LoaderCircle,
   Plus,
   Save,
   X,
 } from "lucide-react";
+import { useConfirm, useToast } from "@/components/ui";
 import { useAuth } from "@/lib/auth";
 import type { DrawingCanvasHandle } from "@/components/canvas/DrawingCanvas";
 import type { SaveStatus } from "@/components/canvas/hooks/useCanvasPersistence";
@@ -19,8 +21,8 @@ type CanvasSidebarProps = {
   activeCanvasId: string | null;
   activeTitle: string;
   dirty: boolean;
+  nothingToSave: boolean;
   saveStatus: SaveStatus;
-  saveError: string | null;
   onSaveErrorClear: () => void;
   onPersist: (options?: {
     silent?: boolean;
@@ -37,10 +39,12 @@ type CanvasSidebarProps = {
 function SaveLine({
   status,
   dirty,
+  nothingToSave,
   loggedIn,
 }: {
   status: SaveStatus;
   dirty: boolean;
+  nothingToSave: boolean;
   loggedIn: boolean;
 }) {
   if (!loggedIn) {
@@ -48,6 +52,14 @@ function SaveLine({
       <span className="flex items-center gap-1.5 text-[#9aa0ad]">
         <CloudOff size={13} strokeWidth={1.8} />
         Not saving — you are logged out
+      </span>
+    );
+  }
+  if (nothingToSave) {
+    return (
+      <span className="flex items-center gap-1.5 text-[#9aa0ad]">
+        <PenLine size={13} strokeWidth={1.8} />
+        Draw something and it saves itself
       </span>
     );
   }
@@ -80,8 +92,8 @@ export function CanvasSidebar({
   activeCanvasId,
   activeTitle,
   dirty,
+  nothingToSave,
   saveStatus,
-  saveError,
   onSaveErrorClear,
   onPersist,
   onActiveChange,
@@ -91,9 +103,10 @@ export function CanvasSidebar({
   onOpenChange,
 }: CanvasSidebarProps) {
   const { user } = useAuth();
+  const toast = useToast();
+  const confirm = useConfirm();
   const setOpen = onOpenChange;
   const [busy, setBusy] = useState<string | null>(null);
-  const [localError, setLocalError] = useState<string | null>(null);
   const [titleDraft, setTitleDraft] = useState(activeTitle);
 
   useEffect(() => {
@@ -127,9 +140,9 @@ export function CanvasSidebar({
     if (!requireAuth()) return;
     setBusy("save");
     onSaveErrorClear();
-    setLocalError(null);
     try {
-      await onPersist();
+      const saved = await onPersist();
+      if (saved) toast.success("Board saved");
     } finally {
       setBusy(null);
     }
@@ -139,27 +152,32 @@ export function CanvasSidebar({
     if (!requireAuth()) return;
     setBusy("create");
     onSaveErrorClear();
-    setLocalError(null);
     try {
-      await onPersist({ forceCreate: true });
+      const copy = await onPersist({ forceCreate: true });
+      if (copy) toast.success("Saved as a new board");
     } finally {
       setBusy(null);
     }
   };
 
-  const handleNewBlank = () => {
-    if (dirty && !user) {
-      const ok = window.confirm(
-        "Start a new blank canvas? Unsaved changes will be lost.",
-      );
-      if (!ok) return;
+  const handleNewBlank = async () => {
+    if (dirty) {
+      const choice = await confirm({
+        title: "Start a blank board?",
+        description: user
+          ? "This board has unsaved changes. They'll be lost unless you save first."
+          : "You're logged out, so nothing here is saved. Starting fresh will lose this drawing.",
+        confirmLabel: "Start blank",
+        cancelLabel: "Keep drawing",
+        tone: "danger",
+      });
+      if (choice !== "confirm") return;
     }
     canvasRef.current?.clearLocal();
     onActiveChange({ id: null, title: "Untitled canvas" });
     setTitleDraft("Untitled canvas");
+    setOpen(false);
   };
-
-  const error = localError || saveError;
 
   return (
     <>
@@ -178,7 +196,7 @@ export function CanvasSidebar({
         // `inert` (not aria-hidden) keeps the offscreen panel's buttons out of
         // both the tab order and the accessibility tree.
         inert={!open}
-        className={`absolute right-0 top-0 z-40 flex h-full w-[min(100vw_-_2.5rem,340px)] flex-col border-l border-black/5 bg-white/95 shadow-[-12px_0_40px_rgba(28,32,42,0.08)] backdrop-blur transition-transform duration-200 sm:w-[min(100vw,320px)] ${
+        className={`absolute right-0 top-0 z-40 flex h-full w-[min(100vw_-_2.5rem,340px)] flex-col border-l border-black/5 bg-white shadow-[-12px_0_40px_rgba(28,32,42,0.10)] transition-transform duration-200 sm:w-[min(100vw,320px)] ${
           open ? "translate-x-0" : "translate-x-full"
         }`}
         style={{
@@ -223,15 +241,10 @@ export function CanvasSidebar({
             <SaveLine
               status={saveStatus}
               dirty={dirty}
+              nothingToSave={nothingToSave}
               loggedIn={Boolean(user)}
             />
           </p>
-
-          {error ? (
-            <p className="rounded-xl bg-[#fff1f0] px-3 py-2 text-xs text-[#c92a2a]">
-              {error}
-            </p>
-          ) : null}
 
           <button
             type="button"
@@ -262,7 +275,7 @@ export function CanvasSidebar({
 
           <button
             type="button"
-            onClick={handleNewBlank}
+            onClick={() => void handleNewBlank()}
             className="flex h-11 w-full items-center gap-2.5 rounded-xl px-2.5 text-sm text-[#3f4555] transition hover:bg-[#f4f5f7] hover:text-[#1c202a]"
           >
             <Plus size={16} strokeWidth={1.8} />

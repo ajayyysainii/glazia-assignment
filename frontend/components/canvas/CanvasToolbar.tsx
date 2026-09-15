@@ -21,6 +21,7 @@ import {
   IconText,
   IconUndo,
 } from "./icons";
+import { GroupLabel, SwatchButton, WidthButton } from "./swatches";
 import type { Tool } from "./types";
 
 const TOOLS: { id: Tool; label: string; icon: ReactNode }[] = [
@@ -68,119 +69,6 @@ function ShortcutBadge({
   );
 }
 
-function ColorSwatch({ value }: { value: string }) {
-  if (value === TRANSPARENT) {
-    return (
-      <span
-        className="block h-full w-full rounded-full"
-        style={{
-          backgroundImage:
-            "linear-gradient(45deg, #d1d5db 25%, transparent 25%), linear-gradient(-45deg, #d1d5db 25%, transparent 25%), linear-gradient(45deg, transparent 75%, #d1d5db 75%), linear-gradient(-45deg, transparent 75%, #d1d5db 75%)",
-          backgroundSize: "8px 8px",
-          backgroundPosition: "0 0, 0 4px, 4px -4px, -4px 0",
-          backgroundColor: "#fff",
-        }}
-      />
-    );
-  }
-  return (
-    <span
-      className="block h-full w-full rounded-full border border-black/10"
-      style={{ backgroundColor: value }}
-    />
-  );
-}
-
-const SWATCH_CLASS =
-  "h-9 w-9 shrink-0 overflow-hidden rounded-full transition lg:h-7 lg:w-7";
-
-function StrokeSwatches({
-  color,
-  onColorChange,
-}: Pick<CanvasToolbarProps, "color" | "onColorChange">) {
-  return (
-    <>
-      {STROKE_COLORS.map((c) => (
-        <button
-          key={`stroke-${c}`}
-          type="button"
-          aria-label={c === TRANSPARENT ? "No stroke" : `Stroke ${c}`}
-          aria-pressed={color === c}
-          title={c === TRANSPARENT ? "No stroke" : `Stroke ${c}`}
-          onClick={() => onColorChange(c)}
-          className={`${SWATCH_CLASS} ${
-            color === c
-              ? "ring-2 ring-[#1c202a] ring-offset-2"
-              : "ring-1 ring-black/10"
-          }`}
-        >
-          <ColorSwatch value={c} />
-        </button>
-      ))}
-    </>
-  );
-}
-
-function FillSwatches({
-  fill,
-  onFillChange,
-}: Pick<CanvasToolbarProps, "fill" | "onFillChange">) {
-  return (
-    <>
-      {FILL_COLORS.map((c) => (
-        <button
-          key={`fill-${c}`}
-          type="button"
-          aria-label={c === TRANSPARENT ? "No fill" : `Fill ${c}`}
-          aria-pressed={fill === c}
-          title={c === TRANSPARENT ? "No fill" : `Fill ${c}`}
-          onClick={() => onFillChange(c)}
-          className={`${SWATCH_CLASS} ${
-            fill === c
-              ? "ring-2 ring-[#1c202a] ring-offset-2"
-              : "ring-1 ring-black/10"
-          }`}
-        >
-          <ColorSwatch value={c} />
-        </button>
-      ))}
-    </>
-  );
-}
-
-function WidthButtons({
-  strokeWidth,
-  onStrokeWidthChange,
-}: Pick<CanvasToolbarProps, "strokeWidth" | "onStrokeWidthChange">) {
-  return (
-    <>
-      {STROKE_SIZES.map((w) => (
-        <button
-          key={w}
-          type="button"
-          aria-label={`Stroke ${w}`}
-          aria-pressed={strokeWidth === w}
-          onClick={() => onStrokeWidthChange(w)}
-          className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl transition lg:h-10 lg:w-10 ${
-            strokeWidth === w ? "bg-[#eef0f4]" : "hover:bg-[#f5f6f8]"
-          }`}
-        >
-          <span
-            className="rounded-full bg-[#1c202a]"
-            style={{ width: w + 4, height: w + 4 }}
-          />
-        </button>
-      ))}
-    </>
-  );
-}
-
-const GroupLabel = ({ children }: { children: ReactNode }) => (
-  <span className="px-1 text-[10px] font-semibold uppercase tracking-wide text-[#9aa0ad]">
-    {children}
-  </span>
-);
-
 const Divider = () => <div className="mx-1 h-6 w-px shrink-0 bg-[#e2e5eb]" />;
 
 export function CanvasToolbar({
@@ -211,16 +99,16 @@ export function CanvasToolbar({
 
   return (
     <div
-      className="pointer-events-none absolute inset-x-0 bottom-0 z-20 flex flex-col items-center gap-2 px-2 lg:inset-x-auto lg:bottom-auto lg:left-1/2 lg:top-5 lg:-translate-x-1/2 lg:flex-col-reverse lg:px-0"
+      className="pointer-events-none absolute inset-x-0 bottom-0 z-20 flex flex-col items-center gap-2 px-2 lg:inset-x-auto lg:bottom-auto lg:left-1/2 lg:top-5 lg:-translate-x-1/2 lg:px-0"
       style={{
         paddingBottom: "calc(0.75rem + var(--safe-bottom))",
         paddingLeft: "calc(0.5rem + var(--safe-left))",
         paddingRight: "calc(0.5rem + var(--safe-right))",
       }}
     >
-      {/* Compact style sheet — small and medium screens only */}
+      {/* Style sheet for screens too narrow for the right-hand rail. */}
       {stylesOpen ? (
-        <div className="pointer-events-auto w-full max-w-md rounded-2xl bg-white/95 p-3 shadow-[0_10px_40px_rgba(28,32,42,0.16)] ring-1 ring-black/5 backdrop-blur min-[1600px]:hidden">
+        <div className="pointer-events-auto w-full max-w-md rounded-2xl bg-white/95 p-3 shadow-[0_10px_40px_rgba(28,32,42,0.16)] ring-1 ring-black/5 backdrop-blur lg:hidden">
           <div className="mb-2 flex items-center justify-between">
             <GroupLabel>Style</GroupLabel>
             <button
@@ -233,28 +121,51 @@ export function CanvasToolbar({
             </button>
           </div>
 
-          <div className="space-y-2">
+          <div className="space-y-3">
             <div>
               <GroupLabel>Stroke</GroupLabel>
-              <div className="no-scrollbar mt-1 flex items-center gap-2 overflow-x-auto pb-1">
-                <StrokeSwatches color={color} onColorChange={onColorChange} />
+              <div className="no-scrollbar mt-1.5 flex items-center gap-2 overflow-x-auto pb-1">
+                {STROKE_COLORS.map((c) => (
+                  <SwatchButton
+                    key={`stroke-${c}`}
+                    value={c}
+                    selected={color === c}
+                    label={c === TRANSPARENT ? "No stroke" : `Stroke ${c}`}
+                    onSelect={onColorChange}
+                    className="h-9 w-9 shrink-0"
+                  />
+                ))}
               </div>
             </div>
 
             <div>
               <GroupLabel>Fill</GroupLabel>
-              <div className="no-scrollbar mt-1 flex items-center gap-2 overflow-x-auto pb-1">
-                <FillSwatches fill={fill} onFillChange={onFillChange} />
+              <div className="no-scrollbar mt-1.5 flex items-center gap-2 overflow-x-auto pb-1">
+                {FILL_COLORS.map((c) => (
+                  <SwatchButton
+                    key={`fill-${c}`}
+                    value={c}
+                    selected={fill === c}
+                    label={c === TRANSPARENT ? "No fill" : `Fill ${c}`}
+                    onSelect={onFillChange}
+                    className="h-9 w-9 shrink-0"
+                  />
+                ))}
               </div>
             </div>
 
             <div>
               <GroupLabel>Width</GroupLabel>
-              <div className="mt-1 flex items-center gap-2">
-                <WidthButtons
-                  strokeWidth={strokeWidth}
-                  onStrokeWidthChange={onStrokeWidthChange}
-                />
+              <div className="mt-1.5 flex items-center gap-2">
+                {STROKE_SIZES.map((w) => (
+                  <WidthButton
+                    key={w}
+                    width={w}
+                    selected={strokeWidth === w}
+                    onSelect={onStrokeWidthChange}
+                    className="h-11 w-11 shrink-0"
+                  />
+                ))}
                 <button
                   type="button"
                   onClick={() => {
@@ -271,68 +182,40 @@ export function CanvasToolbar({
         </div>
       ) : null}
 
-      {/* Main rail: bottom dock on phones/tablets, top bar on desktop */}
+      {/* Tools: a bottom dock on small screens, the top bar on desktop. */}
       <div className="pointer-events-auto flex w-full max-w-full items-center overflow-hidden rounded-2xl bg-white/95 p-1.5 shadow-[0_10px_40px_rgba(28,32,42,0.12)] ring-1 ring-black/5 backdrop-blur lg:w-auto lg:max-w-[calc(100vw_-_26rem)]">
-        {/* Tools scroll when they outgrow the screen; actions below stay put. */}
-        <div className="no-scrollbar flex min-w-0 flex-1 items-center gap-1 overflow-x-auto lg:gap-2">
-        {TOOLS.map((t) => {
-          const shortcut = TOOL_TO_SHORTCUT[t.id];
-          const active = tool === t.id;
-          return (
-            <button
-              key={t.id}
-              type="button"
-              title={`${t.label} (${shortcut})`}
-              aria-label={`${t.label}, shortcut ${shortcut}`}
-              aria-pressed={active}
-              onClick={() => onToolChange(t.id)}
-              className={`relative flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-base transition lg:h-10 lg:w-10 ${
-                active
-                  ? "bg-[#1c202a] text-white"
-                  : "text-[#3f4555] hover:bg-[#eef0f4]"
-              }`}
-            >
-              {t.icon}
-              <ShortcutBadge shortcut={shortcut} active={active} />
-            </button>
-          );
-        })}
-
-        <Divider />
-
-        {/* Inline style groups — desktop only */}
-        <div className="hidden items-center gap-1 min-[1600px]:flex">
-          <StrokeSwatches color={color} onColorChange={onColorChange} />
+        <div className="no-scrollbar flex min-w-0 flex-1 items-center gap-1 overflow-x-auto">
+          {TOOLS.map((t) => {
+            const shortcut = TOOL_TO_SHORTCUT[t.id];
+            const active = tool === t.id;
+            return (
+              <button
+                key={t.id}
+                type="button"
+                title={`${t.label} (${shortcut})`}
+                aria-label={`${t.label}, shortcut ${shortcut}`}
+                aria-pressed={active}
+                onClick={() => onToolChange(t.id)}
+                className={`relative flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-base transition lg:h-10 lg:w-10 ${
+                  active
+                    ? "bg-[#1c202a] text-white"
+                    : "text-[#3f4555] hover:bg-[#eef0f4]"
+                }`}
+              >
+                {t.icon}
+                <ShortcutBadge shortcut={shortcut} active={active} />
+              </button>
+            );
+          })}
         </div>
 
-        <div className="hidden min-[1600px]:block">
-          <Divider />
-        </div>
-
-        <div className="hidden items-center gap-1 min-[1600px]:flex">
-          <FillSwatches fill={fill} onFillChange={onFillChange} />
-        </div>
-
-        <div className="hidden min-[1600px]:block">
-          <Divider />
-        </div>
-
-        <div className="hidden items-center gap-1 min-[1600px]:flex">
-          <WidthButtons
-            strokeWidth={strokeWidth}
-            onStrokeWidthChange={onStrokeWidthChange}
-          />
-        </div>
-
-        </div>
-
-        {/* Style toggle — small and medium screens only */}
+        {/* Style toggle stands in for the rail on small screens. */}
         <button
           type="button"
           onClick={() => setStylesOpen((v) => !v)}
           aria-label="Stroke, fill and width"
           aria-expanded={stylesOpen}
-          className={`relative flex h-11 w-11 shrink-0 items-center justify-center rounded-xl transition min-[1600px]:hidden ${
+          className={`relative ml-1 flex h-11 w-11 shrink-0 items-center justify-center rounded-xl transition lg:hidden ${
             stylesOpen
               ? "bg-[#1c202a] text-white"
               : "text-[#3f4555] hover:bg-[#eef0f4]"
@@ -375,7 +258,7 @@ export function CanvasToolbar({
           type="button"
           title="Clear"
           onClick={onClear}
-          className="hidden h-10 shrink-0 items-center justify-center rounded-xl px-3 text-sm text-[#3f4555] transition hover:bg-[#eef0f4] min-[1600px]:flex"
+          className="hidden h-10 shrink-0 items-center justify-center rounded-xl px-3 text-sm text-[#3f4555] transition hover:bg-[#eef0f4] lg:flex"
         >
           Clear
         </button>

@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { ArrowLeft, LogOut, Plus, Trash2, X } from "lucide-react";
+import { ArrowLeft, LoaderCircle, LogOut, Plus, Trash2 } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 import {
   createCanvas,
@@ -12,6 +12,7 @@ import {
   type CanvasSummary,
 } from "@/lib/canvas";
 import { ApiError } from "@/lib/api/client";
+import { useConfirm, useToast } from "@/components/ui";
 import { CanvasThumbnail } from "./CanvasThumbnail";
 import { useCoarsePointer } from "./hooks/useMediaQuery";
 
@@ -20,6 +21,8 @@ type CanvasDashboardProps = {
   onCreate: (canvas: CanvasDocument) => void;
   onClose: () => void;
   activeCanvasId: string | null;
+  /** False when the dashboard is the landing view, so there is nothing behind it. */
+  canReturn: boolean;
   refreshToken?: number;
 };
 
@@ -58,46 +61,45 @@ export function CanvasDashboard({
   onCreate,
   onClose,
   activeCanvasId,
+  canReturn,
   refreshToken = 0,
 }: CanvasDashboardProps) {
   const { user, logout } = useAuth();
+  const toast = useToast();
+  const confirm = useConfirm();
   const coarsePointer = useCoarsePointer();
   const [canvases, setCanvases] = useState<CanvasSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
-  const [confirmingId, setConfirmingId] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
-    setError(null);
     try {
       setCanvases(await listCanvases());
     } catch (err) {
-      setError(
+      toast.error(
         err instanceof ApiError ? err.message : "Couldn't load your canvases",
       );
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [toast]);
 
   useEffect(() => {
     void refresh();
   }, [refresh, refreshToken]);
 
   useEffect(() => {
-    if (!activeCanvasId) return;
+    if (!canReturn) return;
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") onClose();
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [activeCanvasId, onClose]);
+  }, [canReturn, onClose]);
 
   const handleCreate = async () => {
     setBusy("create");
-    setError(null);
     try {
       onCreate(
         await createCanvas({
@@ -107,7 +109,7 @@ export function CanvasDashboard({
         }),
       );
     } catch (err) {
-      setError(
+      toast.error(
         err instanceof ApiError ? err.message : "Couldn't create a canvas",
       );
       setBusy(null);
@@ -116,26 +118,34 @@ export function CanvasDashboard({
 
   const handleOpen = async (id: string) => {
     setBusy(`open:${id}`);
-    setError(null);
     try {
       onOpen(await getCanvas(id));
     } catch (err) {
-      setError(
+      toast.error(
         err instanceof ApiError ? err.message : "Couldn't open that canvas",
       );
       setBusy(null);
     }
   };
 
-  const handleDelete = async (id: string) => {
+  const handleDelete = async (id: string, title: string) => {
+    const choice = await confirm({
+      title: `Delete “${title}”?`,
+      description:
+        "The board and everything drawn on it will be gone for good. This can't be undone.",
+      confirmLabel: "Delete board",
+      cancelLabel: "Keep it",
+      tone: "danger",
+    });
+    if (choice !== "confirm") return;
+
     setBusy(`delete:${id}`);
-    setError(null);
     try {
       await deleteCanvas(id);
-      setConfirmingId(null);
       await refresh();
+      toast.success(`“${title}” deleted`);
     } catch (err) {
-      setError(
+      toast.error(
         err instanceof ApiError ? err.message : "Couldn't delete that canvas",
       );
     } finally {
@@ -177,7 +187,7 @@ export function CanvasDashboard({
           </div>
 
           <div className="flex shrink-0 items-center gap-1">
-            {activeCanvasId ? (
+            {canReturn ? (
               <button
                 type="button"
                 onClick={onClose}
@@ -244,20 +254,6 @@ export function CanvasDashboard({
           </div>
         </div>
 
-        {error ? (
-          <div className="mt-5 flex items-start gap-2 rounded-2xl bg-[#fff1f0] px-4 py-3 text-sm text-[#c92a2a] ring-1 ring-[#c92a2a]/10">
-            <span className="flex-1">{error}</span>
-            <button
-              type="button"
-              onClick={() => setError(null)}
-              aria-label="Dismiss error"
-              className="-my-1 flex h-7 w-7 items-center justify-center rounded-full transition hover:bg-[#c92a2a]/10"
-            >
-              <X size={14} strokeWidth={2} />
-            </button>
-          </div>
-        ) : null}
-
         {loading ? (
           <div className="mt-8 grid grid-cols-2 gap-x-4 gap-y-6 md:grid-cols-3 lg:gap-x-5 lg:gap-y-7 xl:grid-cols-4">
             {Array.from({ length: 4 }).map((_, i) => (
@@ -304,7 +300,6 @@ export function CanvasDashboard({
             {filtered.map((item) => {
               const active = item.id === activeCanvasId;
               const opening = busy === `open:${item.id}`;
-              const confirming = confirmingId === item.id;
 
               return (
                 <li key={item.id} className="group/card">
@@ -339,42 +334,25 @@ export function CanvasDashboard({
                       </span>
                     ) : null}
 
-                    {confirming ? (
-                      <div className="absolute inset-x-2.5 bottom-2.5 flex items-center gap-2 rounded-xl bg-[#1c202a] px-3 py-2 text-white shadow-lg">
-                        <span className="flex-1 text-xs">Delete board?</span>
-                        <button
-                          type="button"
-                          onClick={() => setConfirmingId(null)}
-                          className="h-7 rounded-lg px-2 text-xs text-white/70 transition hover:bg-white/10 hover:text-white"
-                        >
-                          Cancel
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => void handleDelete(item.id)}
-                          disabled={busy !== null}
-                          className="h-7 rounded-lg bg-[#ff6b6b] px-2.5 text-xs font-medium text-[#2a0d0d] transition hover:bg-[#ff8787] disabled:opacity-60"
-                        >
-                          {busy === `delete:${item.id}` ? "Deleting…" : "Delete"}
-                        </button>
-                      </div>
-                    ) : (
-                      <button
-                        type="button"
-                        onClick={() => setConfirmingId(item.id)}
-                        disabled={busy !== null}
-                        aria-label={`Delete ${item.title}`}
-                        // Hover can't be relied on for touch, so on coarse
-                        // pointers the control simply stays visible.
-                        className={`absolute right-2.5 top-2.5 flex h-8 w-8 items-center justify-center rounded-lg bg-white/90 text-[#6b7285] shadow-[0_2px_8px_rgba(28,32,42,0.12)] ring-1 ring-black/5 backdrop-blur transition hover:bg-white hover:text-[#c92a2a] focus-visible:opacity-100 ${
-                          coarsePointer
-                            ? "opacity-70"
-                            : "opacity-0 group-hover/card:opacity-100"
-                        }`}
-                      >
+                    <button
+                      type="button"
+                      onClick={() => void handleDelete(item.id, item.title)}
+                      disabled={busy !== null}
+                      aria-label={`Delete ${item.title}`}
+                      // Hover can't be relied on for touch, so on coarse
+                      // pointers the control simply stays visible.
+                      className={`absolute right-2.5 top-2.5 flex h-8 w-8 items-center justify-center rounded-lg bg-white/90 text-[#6b7285] shadow-[0_2px_8px_rgba(28,32,42,0.12)] ring-1 ring-black/5 backdrop-blur transition hover:bg-white hover:text-[#c92a2a] focus-visible:opacity-100 disabled:opacity-40 ${
+                        coarsePointer
+                          ? "opacity-70"
+                          : "opacity-0 group-hover/card:opacity-100"
+                      }`}
+                    >
+                      {busy === `delete:${item.id}` ? (
+                        <LoaderCircle size={14} className="animate-spin" />
+                      ) : (
                         <Trash2 size={14} strokeWidth={1.8} />
-                      </button>
-                    )}
+                      )}
+                    </button>
                   </div>
 
                   <div className="mt-3 px-0.5">

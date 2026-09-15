@@ -8,12 +8,14 @@ import {
   useRef,
   useState,
   type CSSProperties,
+  type ReactNode,
 } from "react";
 import type { KonvaEventObject } from "konva/lib/Node";
 import type Konva from "konva";
 import { Stage, Layer, Transformer } from "react-konva";
 import type { CanvasViewport } from "@/lib/canvas";
 import { CanvasGrid } from "./CanvasGrid";
+import { CanvasPalette } from "./CanvasPalette";
 import { CanvasToolbar } from "./CanvasToolbar";
 import { ZoomHud } from "./ZoomHud";
 import {
@@ -54,6 +56,10 @@ type DrawingCanvasProps = {
   initialShapes?: CanvasShape[];
   initialViewport?: CanvasViewport;
   onDirtyChange?: (dirty: boolean) => void;
+  /** Fires when the board goes from having shapes to having none, or back. */
+  onEmptyChange?: (empty: boolean) => void;
+  /** Rendered directly beneath the palette in the right-hand rail. */
+  railFooter?: ReactNode;
 };
 
 const DrawingCanvas = forwardRef<DrawingCanvasHandle, DrawingCanvasProps>(
@@ -62,6 +68,8 @@ const DrawingCanvas = forwardRef<DrawingCanvasHandle, DrawingCanvasProps>(
       initialShapes = [],
       initialViewport = { x: 0, y: 0, scale: 1 },
       onDirtyChange,
+      onEmptyChange,
+      railFooter,
     },
     ref,
   ) {
@@ -148,7 +156,8 @@ const DrawingCanvas = forwardRef<DrawingCanvasHandle, DrawingCanvasProps>(
         viewport: { x: stagePos.x, y: stagePos.y, scale: stageScale },
       });
       onDirtyChange?.(snapshot !== baselineRef.current);
-    }, [shapes, stagePos, stageScale, onDirtyChange]);
+      onEmptyChange?.(shapes.length === 0);
+    }, [shapes, stagePos, stageScale, onDirtyChange, onEmptyChange]);
 
     useEffect(() => {
       const el = containerRef.current;
@@ -714,7 +723,7 @@ const DrawingCanvas = forwardRef<DrawingCanvasHandle, DrawingCanvasProps>(
     return (
       <div
         ref={containerRef}
-        className="relative h-full w-full overflow-hidden overscroll-none touch-none"
+        className="relative h-full w-full overflow-clip overscroll-none touch-none"
         style={{ overscrollBehavior: "none" }}
       >
         <CanvasGrid stageScale={stageScale} stagePos={stagePos} />
@@ -736,6 +745,24 @@ const DrawingCanvas = forwardRef<DrawingCanvasHandle, DrawingCanvasProps>(
           onRedo={handleRedo}
           onClear={clearCanvas}
         />
+
+        {/* Right-hand rail: properties, then whatever the workspace stacks
+            under them. A column keeps the footer glued below the palette as
+            it grows or scrolls. */}
+        <div
+          className="absolute right-5 top-[5.75rem] z-40 hidden max-h-[calc(100dvh_-_8.5rem)] w-[7.25rem] flex-col items-stretch gap-2 lg:flex"
+          style={{ marginRight: "var(--safe-right)" }}
+        >
+          <CanvasPalette
+            color={color}
+            fill={fill}
+            strokeWidth={strokeWidth}
+            onColorChange={applyStrokeToSelection}
+            onFillChange={applyFillToSelection}
+            onStrokeWidthChange={applyStrokeWidthToSelection}
+          />
+          {railFooter}
+        </div>
 
         <ZoomHud
           scale={stageScale}

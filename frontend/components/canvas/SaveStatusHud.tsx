@@ -1,6 +1,5 @@
 type SaveStatusHudProps = {
   status: "idle" | "saving" | "saved" | "error";
-  error?: string | null;
   loggedIn: boolean;
 };
 
@@ -13,7 +12,9 @@ const OFFSET = {
   marginLeft: "var(--safe-left)",
 } as const;
 
-export function SaveStatusHud({ status, error, loggedIn }: SaveStatusHudProps) {
+// Ambient state only. Failures are raised as toasts, where they can carry a
+// retry and can't be mistaken for a passive label.
+export function SaveStatusHud({ status, loggedIn }: SaveStatusHudProps) {
   if (!loggedIn) {
     return (
       <div
@@ -26,23 +27,13 @@ export function SaveStatusHud({ status, error, loggedIn }: SaveStatusHudProps) {
   }
 
   const label =
-    status === "saving"
-      ? "Saving…"
-      : status === "saved"
-        ? "Saved"
-        : status === "error"
-          ? error || "Save failed"
-          : null;
+    status === "saving" ? "Saving…" : status === "saved" ? "Saved" : null;
 
   if (!label) return null;
 
   return (
     <div
-      className={`${POSITION} ${
-        status === "error"
-          ? "bg-[#fff1f0] text-[#c92a2a] ring-[#c92a2a]/10"
-          : "bg-white/95 text-[#3f4555] ring-black/5"
-      }`}
+      className={`${POSITION} bg-white/95 text-[#3f4555] ring-black/5`}
       style={OFFSET}
       role="status"
     >

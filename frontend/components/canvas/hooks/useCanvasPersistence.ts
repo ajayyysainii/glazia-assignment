@@ -46,6 +46,19 @@ export function useCanvasPersistence({
       const snapshot = canvasRef.current?.getSnapshot();
       if (!snapshot) return null;
 
+      // An untouched board is not a document. Panning or zooming a blank
+      // canvas marks it dirty, which would otherwise autosave an empty
+      // "Untitled canvas" into the library. Once a board exists on the server
+      // this no longer applies: clearing it is a real edit worth saving, and
+      // an explicit save still works either way.
+      if (
+        options?.silent &&
+        snapshot.shapes.length === 0 &&
+        !activeIdRef.current
+      ) {
+        return null;
+      }
+
       if (savingRef.current) {
         pendingRef.current = true;
         return null;

@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { LayoutGrid, PanelRight } from "lucide-react";
-import { AuthBar, type AuthMode } from "@/components/auth";
+import { AuthModals, ProfileMenu, type AuthMode } from "@/components/auth";
 import DrawingCanvas, {
   type DrawingCanvasHandle,
 } from "@/components/canvas/DrawingCanvas";
@@ -10,20 +10,37 @@ import { CanvasDashboard } from "@/components/canvas/CanvasDashboard";
 import { CanvasSidebar } from "@/components/canvas/CanvasSidebar";
 import { SaveStatusHud } from "@/components/canvas/SaveStatusHud";
 import { useCanvasPersistence } from "@/components/canvas/hooks/useCanvasPersistence";
+import { useConfirm, useToast } from "@/components/ui";
 import { useAuth } from "@/lib/auth";
-import type { CanvasDocument } from "@/lib/canvas";
+import { getCanvas, type CanvasDocument } from "@/lib/canvas";
+import { ApiError } from "@/lib/api/client";
 
 function WorkspaceInner() {
   const { user, loading } = useAuth();
+  const toast = useToast();
+  const confirm = useConfirm();
   const canvasRef = useRef<DrawingCanvasHandle>(null);
   const [authMode, setAuthMode] = useState<AuthMode>(null);
   const [activeCanvasId, setActiveCanvasId] = useState<string | null>(null);
   const [activeTitle, setActiveTitle] = useState("Untitled canvas");
   const [dirty, setDirty] = useState(false);
-  const [showDashboard, setShowDashboard] = useState(false);
+  const [boardEmpty, setBoardEmpty] = useState(true);
+  // `null` means "not decided yet", so the first paint after auth resolves
+  // already knows whether the dashboard belongs on top — no canvas flash.
+  const [dashboardOverride, setDashboardOverride] = useState<boolean | null>(
+    null,
+  );
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [listToken, setListToken] = useState(0);
-  const settled = useRef(false);
+
+  const showDashboard = dashboardOverride ?? Boolean(user);
+
+  // An empty board that has never been saved has nothing worth writing:
+  // panning or zooming it shouldn't conjure an "Untitled canvas" into the
+  // library. Treating it as clean (rather than blocking the write later) is
+  // what makes the first real mark flip dirty and trigger the autosave.
+  const nothingToSave = boardEmpty && !activeCanvasId;
+  const hasUnsavedWork = dirty && !nothingToSave;
 
   const onActiveChange = useCallback(
     (canvas: { id: string | null; title: string }) => {
@@ -37,28 +54,39 @@ function WorkspaceInner() {
     canvasRef,
     activeCanvasId,
     activeTitle,
-    dirty,
+    dirty: hasUnsavedWork,
     onActiveChange,
     onDirtyChange: setDirty,
   });
 
-  // The dashboard is the landing view for signed-in users, and never exists
-  // for signed-out ones. Only the restored session opens it on arrival —
-  // logging in mid-sketch shouldn't yank the board away.
+  // Logging out drops you back onto the board; there is no library to show.
   useEffect(() => {
-    if (loading) return;
-    if (!settled.current) {
-      settled.current = true;
-      if (user) setShowDashboard(true);
-      return;
-    }
-    if (!user) setShowDashboard(false);
+    if (!loading && !user) setDashboardOverride(false);
   }, [user, loading]);
 
-  // Keep the list fresh after each successful save.
+  // Surface save failures once each, rather than as a permanent inline banner.
+  const lastError = useRef<string | null>(null);
+  useEffect(() => {
+    if (status === "error" && error && error !== lastError.current) {
+      lastError.current = error;
+      toast.error(error, {
+        action: { label: "Retry", onAction: () => void persist() },
+      });
+    }
+    if (status !== "error") lastError.current = null;
+  }, [status, error, toast, persist]);
+
   useEffect(() => {
     if (status === "saved") setListToken((t) => t + 1);
   }, [status]);
+
+  // Closing the tab mid-edit is the one case only the browser can warn about.
+  useEffect(() => {
+    if (!hasUnsavedWork) return;
+    const onBeforeUnload = (e: BeforeUnloadEvent) => e.preventDefault();
+    window.addEventListener("beforeunload", onBeforeUnload);
+    return () => window.removeEventListener("beforeunload", onBeforeUnload);
+  }, [hasUnsavedWork]);
 
   const loadCanvas = useCallback((canvas: CanvasDocument) => {
     canvasRef.current?.loadDocument({
@@ -67,28 +95,115 @@ function WorkspaceInner() {
     });
     setActiveCanvasId(canvas.id);
     setActiveTitle(canvas.title);
-    setShowDashboard(false);
+    setDashboardOverride(false);
   }, []);
 
+  /** Throw away local edits by reloading the last saved version. */
+  const discardChanges = useCallback(async () => {
+    if (!activeCanvasId) {
+      canvasRef.current?.clearLocal();
+      onActiveChange({ id: null, title: "Untitled canvas" });
+      return;
+    }
+    try {
+      const saved = await getCanvas(activeCanvasId);
+      canvasRef.current?.loadDocument({
+        shapes: saved.shapes,
+        viewport: saved.viewport,
+      });
+      setActiveTitle(saved.title);
+    } catch (err) {
+      toast.error(
+        err instanceof ApiError
+          ? err.message
+          : "Couldn't restore the saved version",
+      );
+    }
+  }, [activeCanvasId, onActiveChange, toast]);
+
   const openDashboard = useCallback(async () => {
-    if (dirty) await persist({ silent: true });
-    setShowDashboard(true);
-  }, [dirty, persist]);
+    const choice = hasUnsavedWork
+      ? await confirm({
+          title: "Leave this board?",
+          description:
+            "You have changes that haven't been saved yet. Save them, discard them, or stay here.",
+          confirmLabel: "Save & leave",
+          altLabel: "Discard changes",
+          cancelLabel: "Stay",
+        })
+      : await confirm({
+          title: "Leave this board?",
+          description: nothingToSave
+            ? "This board is still empty, so there is nothing to lose."
+            : "Every change here is saved. You can reopen it anytime.",
+          confirmLabel: "Leave",
+          cancelLabel: "Stay",
+        });
+
+    if (choice === "cancel") return;
+
+    if (choice === "confirm" && hasUnsavedWork) {
+      const saved = await persist();
+      if (!saved) return; // The failure toast already explained why.
+      toast.success("Board saved");
+    }
+
+    if (choice === "alt") {
+      await discardChanges();
+      toast.info("Changes discarded");
+    }
+
+    setDashboardOverride(true);
+  }, [confirm, hasUnsavedWork, nothingToSave, discardChanges, persist, toast]);
+
+  // Hold the board back until the session is known, so a logged-in visitor
+  // never sees the canvas flash past before their library appears.
+  if (loading) {
+    return (
+      <main className="flex h-dvh w-full items-center justify-center bg-[#f4f5f7] text-sm text-[#6b7285]">
+        Loading…
+      </main>
+    );
+  }
 
   return (
-    <main className="relative h-dvh w-full overflow-hidden">
-      <DrawingCanvas ref={canvasRef} onDirtyChange={setDirty} />
-      <AuthBar mode={authMode} onModeChange={setAuthMode} />
-      <SaveStatusHud
-        status={status}
-        error={error}
-        loggedIn={Boolean(user)}
+    <main className="relative h-dvh w-full overflow-clip">
+      <DrawingCanvas
+        ref={canvasRef}
+        onDirtyChange={setDirty}
+        onEmptyChange={setBoardEmpty}
+        // Desktop: the account control sits under the palette, in the rail.
+        railFooter={
+          <ProfileMenu
+            variant="rail"
+            onRequestAuth={setAuthMode}
+            onBrowseAll={user ? () => void openDashboard() : undefined}
+          />
+        }
       />
+
+      {/* Below lg there is no rail, so the account control keeps its corner. */}
+      <div
+        className="absolute right-3 top-3 z-40 lg:hidden"
+        style={{
+          marginTop: "var(--safe-top)",
+          marginRight: "var(--safe-right)",
+        }}
+      >
+        <ProfileMenu
+          variant="bar"
+          onRequestAuth={setAuthMode}
+          onBrowseAll={user ? () => void openDashboard() : undefined}
+        />
+      </div>
+
+      <AuthModals mode={authMode} onModeChange={setAuthMode} />
+      <SaveStatusHud status={status} loggedIn={Boolean(user)} />
 
       {/* One cluster, so the board chrome reads as a single control surface
           rather than a column of unrelated floating buttons. */}
       <div
-        className="absolute right-3 top-[4.25rem] z-30 flex flex-col items-center gap-0.5 rounded-2xl bg-white/95 p-1 shadow-[0_10px_40px_rgba(28,32,42,0.12)] ring-1 ring-black/5 backdrop-blur lg:right-5 lg:top-[4.75rem]"
+        className="absolute right-3 top-[4.25rem] z-30 flex items-center gap-0.5 rounded-2xl bg-white/95 p-1 shadow-[0_10px_40px_rgba(28,32,42,0.12)] ring-1 ring-black/5 backdrop-blur lg:right-5 lg:top-5"
         style={{
           marginTop: "var(--safe-top)",
           marginRight: "var(--safe-right)",
@@ -105,7 +220,7 @@ function WorkspaceInner() {
             >
               <LayoutGrid size={18} strokeWidth={1.8} />
             </button>
-            <span className="h-px w-5 bg-[#e2e5eb]" />
+            <span className="h-5 w-px bg-[#e2e5eb]" />
           </>
         ) : null}
         <button
@@ -128,9 +243,10 @@ function WorkspaceInner() {
         canvasRef={canvasRef}
         activeCanvasId={activeCanvasId}
         activeTitle={activeTitle}
-        dirty={dirty}
+        dirty={hasUnsavedWork}
+        // Empty and never saved: autosave deliberately leaves it alone.
+        nothingToSave={nothingToSave}
         saveStatus={status}
-        saveError={error}
         onSaveErrorClear={() => setError(null)}
         onPersist={persist}
         onActiveChange={onActiveChange}
@@ -146,10 +262,12 @@ function WorkspaceInner() {
       {user && showDashboard ? (
         <CanvasDashboard
           activeCanvasId={activeCanvasId}
+          // Landing straight on the dashboard means there is no board behind.
+          canReturn={dashboardOverride === true}
           refreshToken={listToken}
           onOpen={loadCanvas}
           onCreate={loadCanvas}
-          onClose={() => setShowDashboard(false)}
+          onClose={() => setDashboardOverride(false)}
         />
       ) : null}
     </main>
